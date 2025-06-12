@@ -679,7 +679,7 @@ cargo run --example config_file_example
 
 ## 📝 许可证
 
-本项目采用 MIT 许可证。详见 [LICENSE](LICENSE) 文件。
+本项目采用 Apache--2.0 许可证。详见 [LICENSE](LICENSE) 文件。
 
 ## 🤝 贡献
 
@@ -690,6 +690,5 @@ cargo run --example config_file_example
 如果您遇到问题或有建议，请：
 
 1. 查看 [文档](https://docs.rs/quantum_log)
-2. 搜索或创建 [Issue](https://github.com/your-username/quantum_log/issues)
-3. 参与 [讨论](https://github.com/your-username/quantum_log/discussions)
-4. 
+2. 搜索或创建 [Issue](https://github.com/Kirky-X/quantum_log/issues)
+3. 参与 [讨论](https://github.com/Kirky-X/quantum_log/discussions)

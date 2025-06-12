@@ -679,7 +679,7 @@ cargo run --example config_file_example
 
 ## 📝 License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache--2.0 License. See the [LICENSE](LICENSE) file for details.
 
 ## 🤝 Contributing
 
@@ -690,5 +690,5 @@ Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) to lea
 If you encounter issues or have suggestions, please:
 
 1. Check the [documentation](https://docs.rs/quantum_log)
-2. Search or create an [Issue](https://github.com/your-username/quantum_log/issues)
-3. Join the [discussion](https://github.com/your-username/quantum_log/discussions)
+2. Search or create an [Issue](https://github.com/Kirky-X/quantum_log/issues)
+3. Join the [discussion](https://github.com/Kirky-X/quantum_log/discussions)
