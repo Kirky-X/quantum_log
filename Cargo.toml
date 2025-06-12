@@ -3,7 +3,7 @@ name = "quantum_log"
 version = "0.1.0"
 edition = "2021"
 authors = ["Kirky.X"]
-description = "High-performance asynchronous logging framework based on tracing ecosystem."
+description = "High-performance asynchronous logging framework based on tracing ecosystem"
 license = "Apache-2.0"
 repository = "https://github.com/Kirky-X/quantum_log"
 keywords = ["logging", "tracing", "async", "performance"]
@@ -35,8 +35,8 @@ csv = "1.3"
 diesel = { version = "2.2", features = ["chrono", "r2d2"], optional = true }
 r2d2 = { version = "0.8", optional = true }
 mysqlclient-sys = { version = "0.4", features = ["bundled"], optional = true }
-libsqlite3-sys = { version = "0.34.0", features = ["bundled"], optional = true }
-pq-sys = { version = "0.7.1", features = ["bundled"], optional = true }
+libsqlite3-sys = { version = "0.30", features = ["bundled"], optional = true }
+pq-sys = { version = "0.6", features = ["bundled"], optional = true }
 openssl-sys = { version = "0.9", features = ["vendored"], optional = true }
 
 # Terminal colors
