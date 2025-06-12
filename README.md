@@ -3,7 +3,9 @@
 [![Crates.io](https://img.shields.io/crates/v/quantum_log.svg)](https://crates.io/crates/quantum_log)
 [![Documentation](https://docs.rs/quantum_log/badge.svg)](https://docs.rs/quantum_log)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Build Status](https://github.com/your-username/quantum_log/workflows/CI/badge.svg)](https://github.com/your-username/quantum_log/actions)
+[![Rust](https://github.com/Kirky-X/quantum_log/actions/workflows/rust.yml/badge.svg)](https://github.com/Kirky-X/quantum_log/actions/workflows/rust.yml)
+
+**[English](README_EN.md)** | **[文档](https://docs.rs/lingo)**
 
 **QuantumLog** 是一个专为高性能计算环境设计的异步日志库，支持多种输出格式和目标，包括文件、数据库和标准输出。它提供了强大的配置选项、优雅的关闭机制和详细的诊断信息。
 
@@ -690,10 +692,4 @@ cargo run --example config_file_example
 1. 查看 [文档](https://docs.rs/quantum_log)
 2. 搜索或创建 [Issue](https://github.com/your-username/quantum_log/issues)
 3. 参与 [讨论](https://github.com/your-username/quantum_log/discussions)
-
-## 🔗 相关链接
-
-- [Crates.io](https://crates.io/crates/quantum_log)
-- [文档](https://docs.rs/quantum_log)
-- [GitHub 仓库](https://github.com/your-username/quantum_log)
-- [更新日志](CHANGELOG.md)
+4. 

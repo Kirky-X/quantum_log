@@ -3,7 +3,9 @@
 [![Crates.io](https://img.shields.io/crates/v/quantum_log.svg)](https://crates.io/crates/quantum_log)
 [![Documentation](https://docs.rs/quantum_log/badge.svg)](https://docs.rs/quantum_log)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Build Status](https://github.com/your-username/quantum_log/workflows/CI/badge.svg)](https://github.com/your-username/quantum_log/actions)
+[![Rust](https://github.com/Kirky-X/quantum_log/actions/workflows/rust.yml/badge.svg)](https://github.com/Kirky-X/quantum_log/actions/workflows/rust.yml)
+
+**[中文](README.md)** | **[文档](https://docs.rs/lingo)**
 
 **QuantumLog** is an asynchronous logging library designed for high-performance computing environments, supporting multiple output formats and targets including files, databases, and standard output. It provides powerful configuration options, graceful shutdown mechanisms, and detailed diagnostic information.
 
@@ -690,10 +692,3 @@ If you encounter issues or have suggestions, please:
 1. Check the [documentation](https://docs.rs/quantum_log)
 2. Search or create an [Issue](https://github.com/your-username/quantum_log/issues)
 3. Join the [discussion](https://github.com/your-username/quantum_log/discussions)
-
-## 🔗 Related Links
-
-- [Crates.io](https://crates.io/crates/quantum_log)
-- [Documentation](https://docs.rs/quantum_log)
-- [GitHub Repository](https://github.com/your-username/quantum_log)
-- [Changelog](CHANGELOG.md)
