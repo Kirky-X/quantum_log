@@ -175,20 +175,9 @@ pub fn get_username() -> String {
 /// println!("Current hostname: {}", hostname);
 /// ```
 pub fn get_hostname() -> String {
-    #[cfg(windows)]
-    {
-        get_hostname_windows().unwrap_or_else(|| "unknown".to_string())
-    }
-    
-    #[cfg(unix)]
-    {
-        get_hostname_unix().unwrap_or_else(|| "unknown".to_string())
-    }
-    
-    #[cfg(not(any(windows, unix)))]
-    {
-        "unknown".to_string()
-    }
+    hostname::get()
+        .map(|name| name.to_string_lossy().into_owned())
+        .ok().unwrap_or_else(|| "unknown".to_string())
 }
 
 #[cfg(windows)]
@@ -202,25 +191,6 @@ fn get_username_windows() -> Option<String> {
     unsafe {
         if GetUserNameW(buffer.as_mut_ptr(), &mut size) != 0 {
             buffer.truncate((size - 1) as usize); // 移除null终止符
-            let os_string = OsString::from_wide(&buffer);
-            os_string.into_string().ok()
-        } else {
-            None
-        }
-    }
-}
-
-#[cfg(windows)]
-fn get_hostname_windows() -> Option<String> {
-    use winapi::um::winbase::GetComputerNameW;
-    use winapi::shared::minwindef::DWORD;
-    
-    let mut buffer = vec![0u16; 256];
-    let mut size = buffer.len() as DWORD;
-    
-    unsafe {
-        if GetComputerNameW(buffer.as_mut_ptr(), &mut size) != 0 {
-            buffer.truncate(size as usize);
             let os_string = OsString::from_wide(&buffer);
             os_string.into_string().ok()
         } else {
@@ -256,27 +226,6 @@ fn get_username_unix() -> Option<String> {
     }
     
     None
-}
-
-#[cfg(unix)]
-fn get_hostname_unix() -> Option<String> {
-    use std::ffi::CStr;
-    
-    let mut buffer = vec![0u8; 256];
-    
-    unsafe {
-        if libc::gethostname(buffer.as_mut_ptr() as *mut libc::c_char, buffer.len()) == 0 {
-            // 找到第一个null字节
-            if let Some(null_pos) = buffer.iter().position(|&x| x == 0) {
-                buffer.truncate(null_pos);
-            }
-            
-            let c_str = CStr::from_bytes_with_nul(&buffer).ok()?;
-            c_str.to_string_lossy().into_owned().into()
-        } else {
-            None
-        }
-    }
 }
 
 #[cfg(test)]
