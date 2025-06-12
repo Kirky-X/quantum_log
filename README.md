@@ -1,8 +1,8 @@
-# QuantumLog (量子日志)
+# QuantumLog (灵迹)
 
 [![Crates.io](https://img.shields.io/crates/v/quantum_log.svg)](https://crates.io/crates/quantum_log)
 [![Documentation](https://docs.rs/quantum_log/badge.svg)](https://docs.rs/quantum_log)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://github.com/Kirky-X/quantum_log/actions/workflows/rust.yml/badge.svg)](https://github.com/Kirky-X/quantum_log/actions/workflows/rust.yml)
 
 **[English](README_EN.md)** | **[文档](https://docs.rs/lingo)**
