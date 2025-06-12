@@ -1,0 +1,121 @@
+# QuantumLog 配置文件示例
+# 这个文件展示了所有可用的配置选项
+
+# 全局配置
+global_level = "INFO"                    # 全局日志级别: TRACE, DEBUG, INFO, WARN, ERROR
+pre_init_buffer_size = 1000              # 预初始化缓冲区大小
+pre_init_stdout_enabled = true           # 是否启用预初始化标准输出
+backpressure_strategy = "Drop"           # 背压策略: "Block" 或 "Drop"
+
+# 上下文字段配置
+[context_fields]
+timestamp = true                         # 包含时间戳
+level = true                            # 包含日志级别
+target = true                           # 包含目标模块
+file_line = false                       # 包含文件和行号
+pid = true                              # 包含进程ID
+tid = false                             # 包含线程ID
+mpi_rank = false                        # 包含MPI排名（需要MPI特性）
+username = false                        # 包含用户名
+hostname = true                         # 包含主机名
+span_info = true                        # 包含span信息
+
+# 格式配置
+[format]
+format_type = "Json"                    # 格式类型: "Json" 或 "Text"
+timestamp_format = "%Y-%m-%d %H:%M:%S%.3f"  # 时间戳格式
+log_template = "{timestamp} [{level}] {target} - {message}"  # 文本格式模板
+json_fields_key = "fields"              # JSON格式中字段的键名
+
+# 标准输出配置
+[stdout]
+enabled = true                          # 是否启用标准输出
+level = "INFO"                          # 标准输出的日志级别
+color_enabled = true                    # 是否启用颜色
+colored = true                          # 是否使用颜色
+
+[stdout.format]
+format_type = "Text"                    # 标准输出格式类型
+timestamp_format = "%Y-%m-%d %H:%M:%S%.3f"
+log_template = "{timestamp} [{level}] {target} - {message}"
+json_fields_key = "data"
+
+# 文件输出配置
+[file]
+enabled = true                          # 是否启用文件输出
+level = "DEBUG"                         # 文件输出的日志级别
+output_type = "Json"                    # 输出类型: "Json" 或 "Text"
+directory = "./logs"                    # 日志文件目录
+filename_base = "quantum"               # 文件名基础部分
+extension = "log"                       # 文件扩展名
+separation_strategy = "None"            # 分离策略
+write_buffer_size = 8192                # 写入缓冲区大小
+writer_cache_ttl_seconds = 300          # 写入器缓存TTL（秒）
+writer_cache_capacity = 1024            # 写入器缓存容量
+
+# 文件轮转配置
+[file.rotation]
+strategy = "Size"                       # 轮转策略: "Size" 或 "Time"
+max_size_mb = 50                        # 轮转的最大文件大小（MB）
+max_files = 5                           # 轮转保留的最大文件数
+compress_rotated_files = false          # 是否压缩轮转的文件
+# time_pattern = "%Y%m%d"               # 时间轮转模式（当strategy为"Time"时使用）
+
+# 数据库输出配置（需要database特性）
+[database]
+enabled = false                         # 是否启用数据库输出
+level = "WARN"                          # 数据库输出的日志级别
+database_type = "PostgreSQL"            # 数据库类型: "PostgreSQL", "MySQL", "SQLite"
+connection_string = "postgresql://user:password@localhost:5432/logs"  # 数据库连接字符串
+table_name = "quantum_logs"             # 日志表名
+batch_size = 100                        # 批处理大小
+pool_size = 5                           # 连接池大小
+connection_timeout_ms = 5000            # 连接超时（毫秒）
+auto_create_table = true                # 是否自动创建表
+
+# 网络输出配置（如果支持）
+# [network]
+# enabled = false
+# level = "ERROR"
+# endpoint = "http://log-server:8080/logs"
+# timeout_ms = 3000
+# retry_attempts = 3
+# format = { type = "json" }
+
+# 高级配置示例
+# 这些配置展示了更复杂的使用场景
+
+# 多环境配置示例
+# 可以根据环境变量或其他条件选择不同的配置
+
+# 开发环境配置
+# [dev]
+# global_level = "DEBUG"
+# [dev.stdout]
+# enabled = true
+# level = "DEBUG"
+# format = { type = "text" }
+# [dev.file]
+# enabled = false
+
+# 生产环境配置
+# [prod]
+# global_level = "INFO"
+# [prod.stdout]
+# enabled = false
+# [prod.file]
+# enabled = true
+# level = "INFO"
+# format = { type = "json" }
+# [prod.database]
+# enabled = true
+# level = "WARN"
+
+# 性能调优配置
+# [performance]
+# pre_init_buffer_size = 10000
+# backpressure_strategy = "Drop"
+# [performance.file]
+# buffer_size = 65536
+# writer_cache_capacity = 4096
+# writer_cache_ttl_seconds = 600
