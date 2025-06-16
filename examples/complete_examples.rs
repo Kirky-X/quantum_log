@@ -2,8 +2,8 @@
 //! 这个文件包含了所有主要使用场景的完整、可运行的示例代码
 
 use quantum_log::{
-    init, shutdown,
-    get_diagnostics, get_buffer_stats, is_initialized, QuantumLogConfig,
+    init_with_config,
+    get_diagnostics, get_buffer_stats, QuantumLogConfig,
 };
 use quantum_log::config::*;
 use tracing::{info, warn, error, debug, span, Level};
@@ -348,9 +348,9 @@ async fn example_mpi_usage() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== 示例9: MPI 环境使用 ===");
     println!("MPI 特性未启用，使用标准模式");
     
-    init().await?;
+    quantum_log::init().await?;
     info!("标准模式启动");
-    shutdown().await?;
+    quantum_log::shutdown().await?;
     
     println!("MPI 使用示例完成（标准模式）");
     Ok(())

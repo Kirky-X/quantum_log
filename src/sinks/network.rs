@@ -349,9 +349,9 @@ impl NetworkSinkProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{LogLevel, OutputFormat};
+    use crate::config::OutputFormat;
     use crate::core::event::ContextInfo;
-    use std::net::SocketAddr;
+    
     use tokio::net::{TcpListener, UdpSocket};
     use tracing::Level;
 
@@ -412,7 +412,7 @@ mod tests {
 
         // 在后台接受连接
         let server_handle = tokio::spawn(async move {
-            if let Ok((mut stream, _)) = listener.accept().await {
+            if let Ok((stream, _)) = listener.accept().await {
                 let mut buffer = [0; 1024];
                 let _ = stream.readable().await;
                 let _ = stream.try_read(&mut buffer);

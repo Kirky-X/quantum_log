@@ -285,7 +285,7 @@ impl BufferedEvent {
 mod tests {
     use super::*;
     use tracing::Level;
-    use tracing_subscriber::{layer::SubscriberExt, Registry};
+    
 
     #[test]
     fn test_buffer_creation() {

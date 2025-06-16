@@ -62,7 +62,10 @@ pub mod database {
 }
 
 // 重新导出主要类型
-pub use config::{load_config_from_file, QuantumLogConfig, QuantumLoggerConfig};
+pub use config::{
+    load_config_from_file, QuantumLogConfig, QuantumLoggerConfig,
+    BackpressureStrategy, StdoutConfig, OutputFormat
+};
 pub use diagnostics::{get_diagnostics, DiagnosticsSnapshot};
 pub use error::{QuantumLogError, Result};
 pub use shutdown::{

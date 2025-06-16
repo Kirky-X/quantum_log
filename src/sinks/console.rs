@@ -292,7 +292,7 @@ impl ConsoleSinkProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{LogLevel, OutputFormat};
+    use crate::config::OutputFormat;
     use crate::core::event::ContextInfo;
     use tracing::Level;
 

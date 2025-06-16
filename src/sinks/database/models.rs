@@ -3,7 +3,7 @@
 //! 此模块定义了与数据库表对应的 Rust 结构体，用于 Diesel ORM 操作。
 
 #[cfg(feature = "database")]
-use crate::core::event::QuantumLogEvent;
+use chrono::{DateTime, NaiveDateTime, Utc};
 #[cfg(feature = "database")]
 use crate::sinks::database::schema::quantum_logs;
 #[cfg(feature = "database")]
