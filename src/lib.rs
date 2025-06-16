@@ -62,23 +62,29 @@ pub mod database {
 }
 
 // 重新导出主要类型
-pub use config::{QuantumLogConfig, QuantumLoggerConfig, load_config_from_file};
-pub use error::{QuantumLogError, Result};
+pub use config::{load_config_from_file, QuantumLogConfig, QuantumLoggerConfig};
 pub use diagnostics::{get_diagnostics, DiagnosticsSnapshot};
-pub use shutdown::{ShutdownHandle as QuantumShutdownHandle, ShutdownListener, ShutdownCoordinator, ShutdownSignal, ShutdownState};
+pub use error::{QuantumLogError, Result};
+pub use shutdown::{
+    ShutdownCoordinator, ShutdownHandle as QuantumShutdownHandle, ShutdownListener, ShutdownSignal,
+    ShutdownState,
+};
 
 // 重新导出核心功能
 pub use core::event::QuantumLogEvent;
-pub use core::subscriber::{QuantumLogSubscriber, QuantumLogSubscriberBuilder, BufferStats};
+pub use core::subscriber::{BufferStats, QuantumLogSubscriber, QuantumLogSubscriberBuilder};
 
-use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use once_cell::sync::Lazy;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 
 /// 库版本
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// 全局订阅器实例
-static GLOBAL_SUBSCRIBER: Lazy<Arc<Mutex<Option<QuantumLogSubscriber>>>> = 
+static GLOBAL_SUBSCRIBER: Lazy<Arc<Mutex<Option<QuantumLogSubscriber>>>> =
     Lazy::new(|| Arc::new(Mutex::new(None)));
 
 /// QuantumLog 初始化标记
@@ -114,20 +120,20 @@ pub async fn init() -> Result<()> {
         }),
         ..Default::default()
     };
-    
+
     let mut subscriber = QuantumLogSubscriber::with_config(config)?;
-    
+
     // 初始化订阅器
     subscriber.initialize().await?;
-    
+
     // 存储订阅器实例以便后续关闭
     if let Ok(mut global) = GLOBAL_SUBSCRIBER.lock() {
         *global = Some(subscriber.clone());
     }
-    
+
     // 安装为全局订阅器
     subscriber.install_global()?;
-    
+
     Ok(())
 }
 
@@ -156,18 +162,18 @@ pub async fn init() -> Result<()> {
 /// ```
 pub async fn init_with_config(config: QuantumLogConfig) -> Result<()> {
     let mut subscriber = QuantumLogSubscriber::with_config(config)?;
-    
+
     // 初始化订阅器
     subscriber.initialize().await?;
-    
+
     // 存储订阅器实例以便后续关闭
     if let Ok(mut global) = GLOBAL_SUBSCRIBER.lock() {
         *global = Some(subscriber.clone());
     }
-    
+
     // 安装为全局订阅器（这会消费 subscriber）
     subscriber.install_global()?;
-    
+
     Ok(())
 }
 
@@ -195,24 +201,26 @@ pub async fn init_with_config(config: QuantumLogConfig) -> Result<()> {
 ///     Ok(())
 /// }
 /// ```
-pub async fn init_with_builder<F>(builder_fn: F) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>>
+pub async fn init_with_builder<F>(
+    builder_fn: F,
+) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>>
 where
     F: FnOnce(QuantumLogSubscriberBuilder) -> QuantumLogSubscriberBuilder,
 {
     let builder = QuantumLogSubscriber::builder();
     let mut subscriber = builder_fn(builder).build()?;
-    
+
     // 初始化订阅器
     subscriber.initialize().await?;
-    
+
     // 存储订阅器实例以便后续关闭
     if let Ok(mut global) = GLOBAL_SUBSCRIBER.lock() {
         *global = Some(subscriber.clone());
     }
-    
+
     // 安装为全局订阅器（这会消费 subscriber）
     subscriber.install_global()?;
-    
+
     Ok(())
 }
 
@@ -242,7 +250,7 @@ pub async fn shutdown() -> Result<()> {
     } else {
         None
     };
-    
+
     if let Some(subscriber) = subscriber {
         subscriber.shutdown().await?;
     }
@@ -273,7 +281,9 @@ pub async fn shutdown() -> Result<()> {
 /// ```
 pub fn get_buffer_stats() -> Option<BufferStats> {
     if let Ok(global) = GLOBAL_SUBSCRIBER.lock() {
-        global.as_ref().map(|subscriber| subscriber.get_buffer_stats())
+        global
+            .as_ref()
+            .map(|subscriber| subscriber.get_buffer_stats())
     } else {
         None
     }
@@ -299,7 +309,9 @@ pub fn get_buffer_stats() -> Option<BufferStats> {
 /// ```
 pub fn is_initialized() -> bool {
     if let Ok(global) = GLOBAL_SUBSCRIBER.lock() {
-        global.as_ref().is_some_and(|subscriber| subscriber.is_initialized())
+        global
+            .as_ref()
+            .is_some_and(|subscriber| subscriber.is_initialized())
     } else {
         false
     }
@@ -310,7 +322,9 @@ pub fn is_initialized() -> bool {
 /// 返回当前 QuantumLog 实例使用的配置。如果 QuantumLog 未初始化，返回 None。
 pub fn get_config() -> Option<QuantumLogConfig> {
     if let Ok(global) = GLOBAL_SUBSCRIBER.lock() {
-        global.as_ref().map(|subscriber| subscriber.config().clone())
+        global
+            .as_ref()
+            .map(|subscriber| subscriber.config().clone())
     } else {
         None
     }
@@ -336,32 +350,34 @@ impl ShutdownHandle {
     /// 触发优雅关闭
     pub async fn shutdown(mut self) -> Result<()> {
         if let Some(sender) = self.sender.take() {
-            sender.send(()).map_err(|_| QuantumLogError::ShutdownError("Failed to send shutdown signal".to_string()))?;
+            sender.send(()).map_err(|_| {
+                QuantumLogError::ShutdownError("Failed to send shutdown signal".to_string())
+            })?;
         }
         Ok(())
     }
 }
 
 /// 初始化 QuantumLog 日志系统
-/// 
+///
 /// 这是设计文档中指定的主要初始化函数，它会：
 /// 1. 检查是否已经初始化，确保只初始化一次
 /// 2. 使用默认配置创建并初始化 QuantumLogSubscriber
 /// 3. 返回 ShutdownHandle 用于优雅关闭
-/// 
+///
 /// # 返回值
-/// 
+///
 /// 返回 `ShutdownHandle`，可用于优雅关闭日志系统
-/// 
+///
 /// # 错误
-/// 
+///
 /// 如果日志系统已经初始化，将返回错误
-/// 
+///
 /// # 示例
-/// 
+///
 /// ```rust
 /// use quantum_log::init_quantum_logger;
-/// 
+///
 /// #[tokio::main]
 /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ///     let shutdown_handle = init_quantum_logger().await?;
@@ -374,31 +390,31 @@ impl ShutdownHandle {
 /// ```
 pub async fn init_quantum_logger() -> Result<ShutdownHandle> {
     // 检查是否已经初始化
-    if IS_QUANTUM_LOG_INITIALIZED.compare_exchange(
-        false, 
-        true, 
-        Ordering::SeqCst, 
-        Ordering::SeqCst
-    ).is_err() {
+    if IS_QUANTUM_LOG_INITIALIZED
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
         return Err(QuantumLogError::InitializationError(
-            "QuantumLog has already been initialized".to_string()
+            "QuantumLog has already been initialized".to_string(),
         ));
     }
-    
+
     // 创建默认配置的订阅器
-    let mut subscriber = QuantumLogSubscriber::new()
-        .map_err(|e| QuantumLogError::InitializationError(format!("Failed to create subscriber: {}", e)))?;
-    
+    let mut subscriber = QuantumLogSubscriber::new().map_err(|e| {
+        QuantumLogError::InitializationError(format!("Failed to create subscriber: {}", e))
+    })?;
+
     // 初始化订阅器
-    subscriber.initialize().await
-        .map_err(|e| QuantumLogError::InitializationError(format!("Failed to initialize subscriber: {}", e)))?;
-    
+    subscriber.initialize().await.map_err(|e| {
+        QuantumLogError::InitializationError(format!("Failed to initialize subscriber: {}", e))
+    })?;
+
     // 创建关闭通道
     let (shutdown_sender, shutdown_receiver) = oneshot::channel();
-    
+
     // 克隆订阅器用于关闭任务
     let subscriber_for_shutdown = subscriber.clone();
-    
+
     // 保存订阅器到全局状态
     if let Ok(mut global) = GLOBAL_SUBSCRIBER.lock() {
         *global = Some(subscriber.clone());
@@ -406,10 +422,10 @@ pub async fn init_quantum_logger() -> Result<ShutdownHandle> {
         // 如果获取锁失败，重置初始化标记
         IS_QUANTUM_LOG_INITIALIZED.store(false, Ordering::SeqCst);
         return Err(QuantumLogError::InitializationError(
-            "Failed to acquire global subscriber lock".to_string()
+            "Failed to acquire global subscriber lock".to_string(),
         ));
     }
-    
+
     // 安装为全局订阅器
     if let Err(e) = subscriber.install_global() {
         // 如果安装失败，清理状态
@@ -417,11 +433,12 @@ pub async fn init_quantum_logger() -> Result<ShutdownHandle> {
         if let Ok(mut global) = GLOBAL_SUBSCRIBER.lock() {
             *global = None;
         }
-        return Err(QuantumLogError::InitializationError(
-            format!("Failed to install global subscriber: {}", e)
-        ));
+        return Err(QuantumLogError::InitializationError(format!(
+            "Failed to install global subscriber: {}",
+            e
+        )));
     }
-    
+
     // 启动关闭监听任务
     tokio::spawn(async move {
         if shutdown_receiver.await.is_ok() {
@@ -437,6 +454,6 @@ pub async fn init_quantum_logger() -> Result<ShutdownHandle> {
             }
         }
     });
-    
+
     Ok(ShutdownHandle::new(shutdown_sender))
 }

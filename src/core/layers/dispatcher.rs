@@ -5,9 +5,9 @@
 use crate::config::{BackpressureStrategy, QuantumLoggerConfig};
 use crate::core::layers::formatter::FormatterLayer;
 use crate::error::Result;
-use crate::sinks::stdout::StdoutSink;
 #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
 use crate::sinks::database::DatabaseSink;
+use crate::sinks::stdout::StdoutSink;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::Event;
@@ -58,23 +58,20 @@ enum SinkProcessorInner {
 
 impl DispatcherLayer {
     /// 创建新的分发层
-    pub fn new(
-        config: QuantumLoggerConfig,
-        formatter: Arc<FormatterLayer>,
-    ) -> Result<Self> {
+    pub fn new(config: QuantumLoggerConfig, formatter: Arc<FormatterLayer>) -> Result<Self> {
         let dispatcher = Self {
             config,
             formatter,
             sinks: Arc::new(RwLock::new(Vec::new())),
         };
-        
+
         Ok(dispatcher)
     }
 
     /// 初始化所有 Sink
     pub async fn initialize_sinks(&self) -> Result<()> {
         let mut sinks = self.sinks.write().await;
-        
+
         // 初始化标准输出 Sink
         if let Some(ref stdout_config) = self.config.stdout {
             if stdout_config.enabled {
@@ -87,7 +84,7 @@ impl DispatcherLayer {
                 });
             }
         }
-        
+
         // 初始化数据库 Sink
         #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
         if let Some(ref database_config) = self.config.database {
@@ -107,34 +104,30 @@ impl DispatcherLayer {
                 }
             }
         }
-        
+
         // 未来会在这里初始化其他 Sink 类型
         // if self.config.file_sink.enabled { ... }
-        
+
         Ok(())
     }
-
-
 
     /// 停机所有 Sink
     pub async fn shutdown(&self) -> Result<()> {
         let mut sinks = self.sinks.write().await;
-        
+
         // 收集所有需要停机的处理器
         let mut shutdown_tasks = Vec::new();
-        
+
         // 由于我们需要移动所有权，我们需要重新构建 sinks 向量
         let mut remaining_sinks = Vec::new();
-        
+
         for sink in sinks.drain(..) {
             match sink.processor {
                 SinkProcessorInner::Stdout(processor) => {
                     // 尝试从 Arc 中提取处理器
                     match Arc::try_unwrap(processor) {
                         Ok(processor) => {
-                            let task = tokio::spawn(async move {
-                                processor.shutdown().await
-                            });
+                            let task = tokio::spawn(async move { processor.shutdown().await });
                             shutdown_tasks.push(task);
                         }
                         Err(arc_processor) => {
@@ -153,9 +146,7 @@ impl DispatcherLayer {
                     // 尝试从 Arc 中提取处理器
                     match Arc::try_unwrap(processor) {
                         Ok(processor) => {
-                            let task = tokio::spawn(async move {
-                                processor.shutdown().await
-                            });
+                            let task = tokio::spawn(async move { processor.shutdown().await });
                             shutdown_tasks.push(task);
                         }
                         Err(arc_processor) => {
@@ -168,21 +159,20 @@ impl DispatcherLayer {
                             });
                         }
                     }
-                }
-                // 未来会添加其他 Sink 类型的停机处理
+                } // 未来会添加其他 Sink 类型的停机处理
             }
         }
-        
+
         // 恢复无法停机的 Sink
         *sinks = remaining_sinks;
-        
+
         // 等待所有停机任务完成
         for task in shutdown_tasks {
             if let Err(e) = task.await {
                 eprintln!("Error during sink shutdown: {}", e);
             }
         }
-        
+
         Ok(())
     }
 }
@@ -191,20 +181,19 @@ impl<S> Layer<S> for DispatcherLayer
 where
     S: tracing::Subscriber + for<'lookup> tracing_subscriber::registry::LookupSpan<'lookup>,
 {
-    fn on_event(
-        &self,
-        event: &Event<'_>,
-        _ctx: Context<'_, S>,
-    ) {
+    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
         // 异步分发事件
         let dispatcher = self.clone();
         let event_metadata = event.metadata();
         let event_fields = extract_event_fields(event);
-        
+
         tokio::spawn(async move {
             // 重新构建事件信息进行分发
             // 注意：这里我们需要重新构建事件，因为 Event 不能跨线程传递
-            if let Err(e) = dispatcher.dispatch_reconstructed_event(event_metadata, &event_fields).await {
+            if let Err(e) = dispatcher
+                .dispatch_reconstructed_event(event_metadata, &event_fields)
+                .await
+            {
                 eprintln!("Failed to dispatch event: {}", e);
             }
         });
@@ -225,24 +214,28 @@ impl Clone for DispatcherLayer {
 /// 提取事件字段
 fn extract_event_fields(event: &Event<'_>) -> std::collections::HashMap<String, String> {
     let mut fields = std::collections::HashMap::new();
-    
+
     struct FieldExtractor<'a> {
         fields: &'a mut std::collections::HashMap<String, String>,
     }
-    
+
     impl<'a> tracing::field::Visit for FieldExtractor<'a> {
         fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-            self.fields.insert(field.name().to_string(), format!("{:?}", value));
+            self.fields
+                .insert(field.name().to_string(), format!("{:?}", value));
         }
-        
+
         fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-            self.fields.insert(field.name().to_string(), value.to_string());
+            self.fields
+                .insert(field.name().to_string(), value.to_string());
         }
     }
-    
-    let mut extractor = FieldExtractor { fields: &mut fields };
+
+    let mut extractor = FieldExtractor {
+        fields: &mut fields,
+    };
     event.record(&mut extractor);
-    
+
     fields
 }
 
@@ -254,15 +247,15 @@ impl DispatcherLayer {
     ) -> Result<()> {
         // 分发到所有 Sink
         let sinks = self.sinks.read().await;
-        
+
         for sink in sinks.iter() {
             if !sink.enabled {
                 continue;
             }
-            
+
             let quantum_event_clone = quantum_event.clone();
             let strategy = sink.backpressure_strategy.clone();
-            
+
             match &sink.processor {
                 SinkProcessorInner::Stdout(processor) => {
                     if let Err(e) = processor.send_event(quantum_event_clone, &strategy).await {
@@ -277,7 +270,7 @@ impl DispatcherLayer {
                 }
             }
         }
-        
+
         Ok(())
     }
 
@@ -295,19 +288,20 @@ impl DispatcherLayer {
             let injector = ContextInjectorLayer::new();
             injector.create_context_for_event().await
         };
-        
+
         // 构建 QuantumLogEvent
-        let message = fields.get("message")
+        let message = fields
+            .get("message")
             .cloned()
             .unwrap_or_else(|| format!("Event from {}", metadata.target()));
-        
+
         let mut event_fields = std::collections::HashMap::new();
         for (key, value) in fields {
             if key != "message" {
                 event_fields.insert(key.clone(), serde_json::Value::String(value.clone()));
             }
         }
-        
+
         let quantum_event = crate::core::event::QuantumLogEvent::new(
             *metadata.level(),
             message,
@@ -315,18 +309,18 @@ impl DispatcherLayer {
             event_fields,
             context_info,
         );
-        
+
         // 分发到所有 Sink
         let sinks = self.sinks.read().await;
-        
+
         for sink in sinks.iter() {
             if !sink.enabled {
                 continue;
             }
-            
+
             let quantum_event_clone = quantum_event.clone();
             let strategy = sink.backpressure_strategy.clone();
-            
+
             match &sink.processor {
                 SinkProcessorInner::Stdout(processor) => {
                     if let Err(e) = processor.send_event(quantum_event_clone, &strategy).await {
@@ -338,11 +332,10 @@ impl DispatcherLayer {
                     if let Err(e) = processor.send_event(quantum_event_clone, &strategy).await {
                         eprintln!("Failed to send event to database sink: {}", e);
                     }
-                }
-                // 未来会添加其他 Sink 类型的处理
+                } // 未来会添加其他 Sink 类型的处理
             }
         }
-        
+
         Ok(())
     }
 }
@@ -380,7 +373,7 @@ mod tests {
         let config = create_test_config();
         let context_injector = Arc::new(ContextInjectorLayer::new());
         let formatter = Arc::new(FormatterLayer::new(config.format.clone(), context_injector));
-        
+
         let dispatcher = DispatcherLayer::new(config, formatter);
         assert!(dispatcher.is_ok());
     }
@@ -391,10 +384,10 @@ mod tests {
         let context_injector = Arc::new(ContextInjectorLayer::new());
         let formatter = Arc::new(FormatterLayer::new(config.format.clone(), context_injector));
         let dispatcher = DispatcherLayer::new(config, formatter).unwrap();
-        
+
         let result = dispatcher.initialize_sinks().await;
         assert!(result.is_ok());
-        
+
         // 检查是否创建了 stdout sink
         let sinks = dispatcher.sinks.read().await;
         assert_eq!(sinks.len(), 1);
@@ -408,9 +401,9 @@ mod tests {
         let context_injector = Arc::new(ContextInjectorLayer::new());
         let formatter = Arc::new(FormatterLayer::new(config.format.clone(), context_injector));
         let dispatcher = DispatcherLayer::new(config, formatter).unwrap();
-        
+
         dispatcher.initialize_sinks().await.unwrap();
-        
+
         let result = dispatcher.shutdown().await;
         assert!(result.is_ok());
     }

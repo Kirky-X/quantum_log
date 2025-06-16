@@ -41,8 +41,6 @@ struct CachedContext {
     initialized: bool,
 }
 
-
-
 impl ContextInjectorLayer {
     /// 创建新的上下文注入层
     pub fn new() -> Self {
@@ -108,18 +106,14 @@ impl<S> Layer<S> for ContextInjectorLayer
 where
     S: tracing::Subscriber + for<'lookup> tracing_subscriber::registry::LookupSpan<'lookup>,
 {
-    fn on_event(
-        &self,
-        event: &tracing::Event<'_>,
-        _ctx: Context<'_, S>,
-    ) {
+    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
         // 在实际实现中，我们需要将上下文信息附加到事件上
         // 这里我们使用 event.record() 来记录上下文信息
         // 但由于 tracing 的限制，我们需要在更高层次处理这个逻辑
-        
+
         // 注意：实际的上下文注入会在 FormatLayer 或 DispatchLayer 中进行
         // 这里主要是为了展示架构设计
-        
+
         let _ = event; // 避免未使用警告
     }
 }
@@ -127,7 +121,7 @@ where
 // 为了实际使用，我们提供一个辅助函数来获取上下文信息
 impl ContextInjectorLayer {
     /// 为给定的事件创建上下文信息
-    /// 
+    ///
     /// 这个方法会被其他层调用来获取上下文信息
     pub async fn create_context_for_event(&self) -> ContextInfo {
         self.get_context_info().await
@@ -138,7 +132,6 @@ impl ContextInjectorLayer {
 mod tests {
     use super::*;
 
-
     #[test]
     fn test_context_injector_creation() {
         let layer = ContextInjectorLayer::new();
@@ -148,9 +141,15 @@ mod tests {
     #[test]
     fn test_context_injector_with_custom_fields() {
         let layer = ContextInjectorLayer::new()
-            .with_custom_field("app_name".to_string(), serde_json::Value::String("test_app".to_string()))
-            .with_custom_field("version".to_string(), serde_json::Value::String("1.0.0".to_string()));
-        
+            .with_custom_field(
+                "app_name".to_string(),
+                serde_json::Value::String("test_app".to_string()),
+            )
+            .with_custom_field(
+                "version".to_string(),
+                serde_json::Value::String("1.0.0".to_string()),
+            );
+
         assert_eq!(layer.custom_fields.len(), 2);
         assert!(layer.custom_fields.contains_key("app_name"));
         assert!(layer.custom_fields.contains_key("version"));
@@ -160,11 +159,11 @@ mod tests {
     async fn test_context_info_generation() {
         let layer = ContextInjectorLayer::new();
         let context = layer.get_context_info().await;
-        
+
         // PID 和 TID 应该总是有值
         assert!(context.pid > 0);
         assert!(context.tid > 0);
-        
+
         // 用户名和主机名在大多数系统上应该可用
         // 但在某些环境下可能为 None，所以我们不强制要求
     }
@@ -172,21 +171,21 @@ mod tests {
     #[tokio::test]
     async fn test_context_caching() {
         let layer = ContextInjectorLayer::new();
-        
+
         // 第一次调用
         let context1 = layer.get_context_info().await;
-        
+
         // 第二次调用
         let context2 = layer.get_context_info().await;
-        
+
         // 缓存的字段应该相同
         assert_eq!(context1.username, context2.username);
         assert_eq!(context1.hostname, context2.hostname);
         assert_eq!(context1.mpi_rank, context2.mpi_rank);
-        
+
         // PID 应该相同 (同一进程)
         assert_eq!(context1.pid, context2.pid);
-        
+
         // TID 可能相同也可能不同 (取决于调用的线程)
     }
 }

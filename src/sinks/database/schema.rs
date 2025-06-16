@@ -33,12 +33,12 @@ diesel::table! {
 #[cfg(feature = "postgres")]
 mod postgres_types {
     use diesel::sql_types::*;
-    
+
     /// PostgreSQL 特定的表定义
     diesel::table! {
         use diesel::sql_types::*;
         use diesel::pg::sql_types::*;
-        
+
         quantum_logs (id) {
             id -> BigSerial,
             timestamp -> Timestamp,
@@ -65,11 +65,11 @@ pub use self::quantum_logs::dsl::*;
 #[cfg(feature = "mysql")]
 mod mysql_types {
     use diesel::sql_types::*;
-    
+
     /// MySQL 特定的表定义
     diesel::table! {
         use diesel::sql_types::*;
-        
+
         quantum_logs (id) {
             id -> BigInt,
             timestamp -> Datetime,
@@ -94,11 +94,11 @@ mod mysql_types {
 #[cfg(feature = "sqlite")]
 mod sqlite_types {
     use diesel::sql_types::*;
-    
+
     /// SQLite 特定的表定义
     diesel::table! {
         use diesel::sql_types::*;
-        
+
         quantum_logs (id) {
             id -> BigInt,
             timestamp -> Text,  // SQLite 使用 TEXT 存储 ISO 8601 格式的时间戳
@@ -146,7 +146,7 @@ pub mod create_table_sql {
         CREATE INDEX IF NOT EXISTS idx_quantum_logs_level ON quantum_logs(level);
         CREATE INDEX IF NOT EXISTS idx_quantum_logs_target ON quantum_logs(target);
     "#;
-    
+
     /// MySQL 创建表语句
     #[cfg(feature = "mysql")]
     pub const MYSQL_CREATE_TABLE: &str = r#"
@@ -170,7 +170,7 @@ pub mod create_table_sql {
             INDEX idx_target (target)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     "#;
-    
+
     /// SQLite 创建表语句
     #[cfg(feature = "sqlite")]
     pub const SQLITE_CREATE_TABLE: &str = r#"
@@ -199,8 +199,6 @@ pub mod create_table_sql {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    
     #[test]
     #[cfg(feature = "database")]
     fn test_table_definition_compiles() {
@@ -208,12 +206,12 @@ mod tests {
         // 实际的表结构验证将在集成测试中进行
         #[cfg(feature = "database")]
         use diesel::prelude::*;
-        
+
         // 测试表名是否正确
         let table_name = "quantum_logs";
         assert_eq!(table_name, "quantum_logs");
     }
-    
+
     #[test]
     fn test_create_table_sql_not_empty() {
         // 测试创建表的 SQL 语句不为空
@@ -222,13 +220,13 @@ mod tests {
             assert!(!create_table_sql::POSTGRES_CREATE_TABLE.is_empty());
             assert!(create_table_sql::POSTGRES_CREATE_TABLE.contains("quantum_logs"));
         }
-        
+
         #[cfg(feature = "mysql")]
         {
             assert!(!create_table_sql::MYSQL_CREATE_TABLE.is_empty());
             assert!(create_table_sql::MYSQL_CREATE_TABLE.contains("quantum_logs"));
         }
-        
+
         #[cfg(feature = "sqlite")]
         {
             assert!(!create_table_sql::SQLITE_CREATE_TABLE.is_empty());

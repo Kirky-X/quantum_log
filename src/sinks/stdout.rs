@@ -1,11 +1,10 @@
+use crate::config::StdoutConfig;
 use crate::core::event::{ContextInfo, QuantumLogEvent};
 use crate::error::QuantumLogError;
-use crate::config::StdoutConfig;
 use tracing::Level;
 
 /// A sink that outputs log events to stdout
-#[derive(Debug)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct StdoutSink {
     /// Whether to use colored output
     colored: bool,
@@ -31,7 +30,11 @@ impl StdoutSink {
     }
 
     /// Sends an event to the stdout sink
-    pub async fn send_event(&self, event: QuantumLogEvent, _strategy: &crate::config::BackpressureStrategy) -> Result<(), QuantumLogError> {
+    pub async fn send_event(
+        &self,
+        event: QuantumLogEvent,
+        _strategy: &crate::config::BackpressureStrategy,
+    ) -> Result<(), QuantumLogError> {
         let formatted = self.format_event(&event);
         println!("{}", formatted);
         Ok(())
@@ -55,7 +58,9 @@ impl StdoutSink {
 
         // Add fields if present
         if !event.fields.is_empty() {
-            let fields_str = event.fields.iter()
+            let fields_str = event
+                .fields
+                .iter()
                 .map(|(k, v)| format!("{}={}", k, v))
                 .collect::<Vec<_>>()
                 .join(" ");
@@ -117,8 +122,6 @@ impl Default for StdoutSink {
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,16 +129,17 @@ mod tests {
     use std::collections::HashMap;
 
     fn create_test_event() -> QuantumLogEvent {
-        static CALLSITE: tracing::callsite::DefaultCallsite = tracing::callsite::DefaultCallsite::new(&tracing::Metadata::new(
-            "test",
-            "quantum_log::stdout::test",
-            Level::INFO,
-            Some(file!()),
-            Some(line!()),
-            Some(module_path!()),
-            tracing::field::FieldSet::new(&[], tracing::callsite::Identifier(&CALLSITE)),
-            tracing::metadata::Kind::EVENT,
-        ));
+        static CALLSITE: tracing::callsite::DefaultCallsite =
+            tracing::callsite::DefaultCallsite::new(&tracing::Metadata::new(
+                "test",
+                "quantum_log::stdout::test",
+                Level::INFO,
+                Some(file!()),
+                Some(line!()),
+                Some(module_path!()),
+                tracing::field::FieldSet::new(&[], tracing::callsite::Identifier(&CALLSITE)),
+                tracing::metadata::Kind::EVENT,
+            ));
         let metadata = tracing::Metadata::new(
             "test",
             "test_target",
@@ -224,7 +228,7 @@ mod tests {
         let sink = StdoutSink::new(crate::config::StdoutConfig::default());
         let event = create_test_event();
         let formatted = sink.format_event(&event);
-        
+
         assert!(formatted.contains("INFO"));
         assert!(formatted.contains("test_target"));
         assert!(formatted.contains("Test message"));
@@ -236,7 +240,7 @@ mod tests {
         let sink = StdoutSink::with_options(true, false);
         let event = create_test_event();
         let formatted = sink.format_event(&event);
-        
+
         assert!(formatted.contains("INFO"));
         assert!(formatted.contains("test_target"));
         assert!(formatted.contains("Test message"));

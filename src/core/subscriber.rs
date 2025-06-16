@@ -4,18 +4,13 @@
 
 use crate::config::QuantumLogConfig;
 use crate::core::layers::{
-    context_injector::ContextInjectorLayer,
-    dispatcher::DispatcherLayer,
-    formatter::FormatterLayer,
+    context_injector::ContextInjectorLayer, dispatcher::DispatcherLayer, formatter::FormatterLayer,
     pre_init_buffer::PreInitBufferLayer,
 };
 use std::sync::Arc;
 use tracing::Level;
 use tracing_subscriber::{
-    filter::LevelFilter,
-    layer::SubscriberExt,
-    util::SubscriberInitExt,
-    Registry,
+    filter::LevelFilter, layer::SubscriberExt, util::SubscriberInitExt, Registry,
 };
 
 /// QuantumLog 订阅器
@@ -64,7 +59,9 @@ impl QuantumLogSubscriber {
     }
 
     /// 使用指定配置创建订阅器
-    pub fn with_config(config: QuantumLogConfig) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn with_config(
+        config: QuantumLogConfig,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         Self::builder().config(config).build()
     }
 
@@ -95,28 +92,31 @@ impl QuantumLogSubscriber {
     /// 重放缓冲的事件
     async fn replay_buffered_events(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let buffered_events = self.pre_init_buffer.drain_buffered_events();
-        
+
         if !buffered_events.is_empty() {
             // 直接通过分发层处理缓冲的事件，避免重复处理
             for buffered_event in buffered_events {
                 // 生成上下文信息
                 let context_info = self.context_injector.get_context_info().await;
-                
+
                 // 转换为 QuantumLogEvent
                 let quantum_event = buffered_event.to_quantum_event(context_info);
-                
+
                 // 直接通过分发层处理事件
                 if let Err(e) = self.dispatcher.dispatch_quantum_event(&quantum_event).await {
                     tracing::error!("Failed to replay buffered event: {}", e);
                 }
             }
-            
+
             let dropped_count = self.pre_init_buffer.get_dropped_count();
             if dropped_count > 0 {
-                tracing::warn!("Dropped {} events due to buffer overflow during pre-initialization", dropped_count);
+                tracing::warn!(
+                    "Dropped {} events due to buffer overflow during pre-initialization",
+                    dropped_count
+                );
             }
         }
-        
+
         Ok(())
     }
 
@@ -124,7 +124,10 @@ impl QuantumLogSubscriber {
     ///
     /// 这会优雅地关闭所有 sink 并等待它们完成处理
     pub async fn shutdown(self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.dispatcher.shutdown().await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+        self.dispatcher
+            .shutdown()
+            .await
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
 
     /// 检查是否已初始化
@@ -149,7 +152,9 @@ impl QuantumLogSubscriber {
     /// 安装为全局默认订阅器
     pub fn install_global(self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let registry = Registry::default()
-            .with(LevelFilter::from_level(self.config.global_level.parse().unwrap_or(Level::INFO)))
+            .with(LevelFilter::from_level(
+                self.config.global_level.parse().unwrap_or(Level::INFO),
+            ))
             .with(self.pre_init_buffer.clone())
             .with(self.context_injector.clone())
             .with(self.formatter.clone())
@@ -198,23 +203,25 @@ impl QuantumLogSubscriberBuilder {
     /// 构建订阅器
     pub fn build(self) -> Result<QuantumLogSubscriber, Box<dyn std::error::Error + Send + Sync>> {
         let config = Arc::new(self.config);
-        
+
         // 创建预初始化缓冲层
         let buffer_size = self.max_buffer_size.unwrap_or(10000);
         let pre_init_buffer = PreInitBufferLayer::new(buffer_size);
-        
+
         // 创建上下文注入层
         let mut context_injector = ContextInjectorLayer::new();
         for (key, value) in self.custom_fields {
-            context_injector = context_injector.with_custom_field(key, serde_json::Value::String(value));
+            context_injector =
+                context_injector.with_custom_field(key, serde_json::Value::String(value));
         }
-        
+
         // 创建格式化层
-        let formatter = FormatterLayer::new(config.format.clone(), Arc::new(context_injector.clone()));
-        
+        let formatter =
+            FormatterLayer::new(config.format.clone(), Arc::new(context_injector.clone()));
+
         // 创建分发层
         let dispatcher = DispatcherLayer::new((*config).clone(), Arc::new(formatter.clone()))?;
-        
+
         Ok(QuantumLogSubscriber {
             config,
             pre_init_buffer,
@@ -244,7 +251,9 @@ pub fn init() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 
 /// 便捷函数：使用配置创建并安装 QuantumLog 订阅器
-pub fn init_with_config(config: QuantumLogConfig) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub fn init_with_config(
+    config: QuantumLogConfig,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let subscriber = QuantumLogSubscriber::with_config(config)?;
     subscriber.install_global()
 }
@@ -262,13 +271,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{QuantumLoggerConfig, LogLevel};
 
     #[test]
     fn test_subscriber_creation() {
         let subscriber = QuantumLogSubscriber::new();
         assert!(subscriber.is_ok());
-        
+
         let subscriber = subscriber.unwrap();
         assert!(!subscriber.is_initialized());
         assert_eq!(subscriber.get_buffer_stats().current_size, 0);
@@ -280,14 +288,14 @@ mod tests {
             global_level: "DEBUG".to_string(),
             ..Default::default()
         };
-        
+
         let subscriber = QuantumLogSubscriber::builder()
             .config(config)
             .max_buffer_size(5000)
             .custom_field("app", "test")
             .custom_field("version", "1.0.0")
             .build();
-        
+
         assert!(subscriber.is_ok());
         let subscriber = subscriber.unwrap();
         assert!(!subscriber.is_initialized());
@@ -297,7 +305,7 @@ mod tests {
     fn test_buffer_stats() {
         let subscriber = QuantumLogSubscriber::new().unwrap();
         let stats = subscriber.get_buffer_stats();
-        
+
         assert_eq!(stats.current_size, 0);
         assert_eq!(stats.dropped_count, 0);
         assert!(!stats.is_initialized);
@@ -307,12 +315,12 @@ mod tests {
     async fn test_subscriber_initialization() {
         let mut subscriber = QuantumLogSubscriber::new().unwrap();
         assert!(!subscriber.is_initialized());
-        
+
         // 注意：这个测试可能会失败，因为我们没有配置实际的 sink
         // 在实际使用中，需要先配置 sink
         let result = subscriber.initialize().await;
         // 我们不检查结果，因为没有配置 sink 可能会失败
-        
+
         // 但是缓冲区应该被标记为已初始化
         let stats = subscriber.get_buffer_stats();
         assert!(stats.is_initialized);
@@ -323,12 +331,12 @@ mod tests {
         let mut custom_fields = std::collections::HashMap::new();
         custom_fields.insert("service".to_string(), "test-service".to_string());
         custom_fields.insert("environment".to_string(), "test".to_string());
-        
+
         let subscriber = QuantumLogSubscriber::builder()
             .custom_fields(custom_fields)
             .custom_field("additional", "field")
             .build();
-        
+
         assert!(subscriber.is_ok());
     }
 
@@ -340,19 +348,17 @@ mod tests {
             let _ = init();
         });
         // 我们不检查结果，因为可能已经有全局订阅器
-        
+
         // 测试 init_with_config 函数
         let config = QuantumLogConfig::default();
         let result = std::panic::catch_unwind(|| {
             let _ = init_with_config(config);
         });
         // 同样不检查结果
-        
+
         // 测试 init_with_builder 函数
         let result = std::panic::catch_unwind(|| {
-            let _ = init_with_builder(|builder| {
-                builder.max_buffer_size(1000)
-            });
+            let _ = init_with_builder(|builder| builder.max_buffer_size(1000));
         });
         // 同样不检查结果
     }

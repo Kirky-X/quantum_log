@@ -4,17 +4,12 @@
 //! 此模块提供了将日志写入各种数据库的功能，支持 SQLite、MySQL 和 PostgreSQL。
 //! 使用连接池和批量插入来优化性能。
 
-use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::mpsc;
-use tokio::time::{interval, timeout};
-use tracing::{debug, error, info, warn};
 
-use crate::config::{DatabaseSinkConfig, DatabaseType};
+use crate::config::DatabaseSinkConfig;
 use crate::core::event::QuantumLogEvent;
-use crate::diagnostics::get_diagnostics;
-use crate::error::{QuantumLogError, Result};
-use crate::sinks::database::models::{LogBatch, NewQuantumLogEntry};
+use crate::error::QuantumLogError;
+use crate::sinks::database::models::NewQuantumLogEntry;
 
 #[cfg(feature = "database")]
 use diesel::prelude::*;
@@ -78,88 +73,108 @@ impl DatabaseSink {
     #[cfg(feature = "database")]
     pub async fn new(config: DatabaseSinkConfig) -> Result<Self> {
         let pool = Self::create_connection_pool(&config).await?;
-        
+
         let full_table_name = if let Some(ref schema) = config.schema_name {
             format!("{}.{}", schema, config.table_name)
         } else {
             config.table_name.clone()
         };
-        
+
         let sink = Self {
             pool,
             config: config.clone(),
             full_table_name,
         };
-        
+
         // 如果启用了自动创建表，则创建表
         if config.auto_create_table {
             sink.create_table_if_not_exists().await?;
         }
-        
+
         Ok(sink)
     }
-    
+
     /// 创建数据库连接池
     #[cfg(feature = "database")]
     async fn create_connection_pool(config: &DatabaseSinkConfig) -> Result<DatabasePool> {
         use diesel::r2d2::Pool;
-        
+
         let timeout_duration = Duration::from_millis(config.connection_timeout_ms);
-        
+
         match config.db_type {
             #[cfg(feature = "sqlite")]
             DatabaseType::Sqlite => {
-                let manager = ConnectionManager::<diesel::sqlite::SqliteConnection>::new(&config.connection_string);
+                let manager = ConnectionManager::<diesel::sqlite::SqliteConnection>::new(
+                    &config.connection_string,
+                );
                 let pool = Pool::builder()
                     .max_size(config.connection_pool_size)
                     .connection_timeout(timeout_duration)
                     .build(manager)
-                    .map_err(|e| QuantumLogError::DatabaseError(format!("SQLite 连接池创建失败: {}", e)))?;
+                    .map_err(|e| {
+                        QuantumLogError::DatabaseError(format!("SQLite 连接池创建失败: {}", e))
+                    })?;
                 Ok(DatabasePool::Sqlite(pool))
-            },
+            }
             #[cfg(feature = "mysql")]
             DatabaseType::Mysql => {
-                let manager = ConnectionManager::<diesel::mysql::MysqlConnection>::new(&config.connection_string);
+                let manager = ConnectionManager::<diesel::mysql::MysqlConnection>::new(
+                    &config.connection_string,
+                );
                 let pool = Pool::builder()
                     .max_size(config.connection_pool_size)
                     .connection_timeout(timeout_duration)
                     .build(manager)
-                    .map_err(|e| QuantumLogError::DatabaseError(format!("MySQL 连接池创建失败: {}", e)))?;
+                    .map_err(|e| {
+                        QuantumLogError::DatabaseError(format!("MySQL 连接池创建失败: {}", e))
+                    })?;
                 Ok(DatabasePool::Mysql(pool))
-            },
+            }
             #[cfg(feature = "postgres")]
             DatabaseType::Postgresql => {
-                let manager = ConnectionManager::<diesel::pg::PgConnection>::new(&config.connection_string);
+                let manager =
+                    ConnectionManager::<diesel::pg::PgConnection>::new(&config.connection_string);
                 let pool = Pool::builder()
                     .max_size(config.connection_pool_size)
                     .connection_timeout(timeout_duration)
                     .build(manager)
-                    .map_err(|e| QuantumLogError::DatabaseError(format!("PostgreSQL 连接池创建失败: {}", e)))?;
+                    .map_err(|e| {
+                        QuantumLogError::DatabaseError(format!("PostgreSQL 连接池创建失败: {}", e))
+                    })?;
                 Ok(DatabasePool::Postgres(pool))
-            },
+            }
             #[cfg(not(feature = "sqlite"))]
-            DatabaseType::Sqlite => Err(QuantumLogError::DatabaseError("SQLite support not enabled".to_string())),
+            DatabaseType::Sqlite => Err(QuantumLogError::DatabaseError(
+                "SQLite support not enabled".to_string(),
+            )),
             #[cfg(not(feature = "mysql"))]
-            DatabaseType::Mysql => Err(QuantumLogError::DatabaseError("MySQL support not enabled".to_string())),
+            DatabaseType::Mysql => Err(QuantumLogError::DatabaseError(
+                "MySQL support not enabled".to_string(),
+            )),
             #[cfg(not(feature = "postgres"))]
-            DatabaseType::Postgresql => Err(QuantumLogError::DatabaseError("PostgreSQL support not enabled".to_string())),
+            DatabaseType::Postgresql => Err(QuantumLogError::DatabaseError(
+                "PostgreSQL support not enabled".to_string(),
+            )),
         }
     }
-    
+
     /// 发送事件到数据库
     #[cfg(feature = "database")]
-    pub async fn send_event(&self, event: QuantumLogEvent, _strategy: &crate::config::BackpressureStrategy) -> Result<()> {
+    pub async fn send_event(
+        &self,
+        event: QuantumLogEvent,
+        _strategy: &crate::config::BackpressureStrategy,
+    ) -> Result<()> {
         // 将事件转换为数据库条目
         let entry = self.convert_event_to_entry(&event).await?;
-        
+
         // 直接插入单个条目
         let pool = self.pool.clone();
         let entries = vec![entry];
-        
-        tokio::task::spawn_blocking(move || {
-            Self::insert_batch_blocking(pool, entries)
-        }).await
-        .map_err(|e| QuantumLogError::DatabaseError(format!("数据库插入任务执行失败: {}", e)))?
+
+        tokio::task::spawn_blocking(move || Self::insert_batch_blocking(pool, entries))
+            .await
+            .map_err(|e| QuantumLogError::DatabaseError(format!("数据库插入任务执行失败: {}", e)))?
     }
 
     /// 关闭数据库 Sink
@@ -174,7 +189,7 @@ impl DatabaseSink {
     #[cfg(feature = "database")]
     async fn create_table_if_not_exists(&self) -> Result<()> {
         use crate::sinks::database::schema::create_table_sql;
-        
+
         let sql = match self.config.db_type {
             #[cfg(feature = "sqlite")]
             DatabaseType::Sqlite => create_table_sql::SQLITE_CREATE_TABLE,
@@ -183,40 +198,62 @@ impl DatabaseSink {
             #[cfg(feature = "postgres")]
             DatabaseType::Postgresql => create_table_sql::POSTGRES_CREATE_TABLE,
             #[cfg(not(feature = "sqlite"))]
-            DatabaseType::Sqlite => return Err(QuantumLogError::ConfigError("SQLite support not enabled".to_string())),
+            DatabaseType::Sqlite => {
+                return Err(QuantumLogError::ConfigError(
+                    "SQLite support not enabled".to_string(),
+                ))
+            }
             #[cfg(not(feature = "mysql"))]
-            DatabaseType::Mysql => return Err(QuantumLogError::ConfigError("MySQL support not enabled".to_string())),
+            DatabaseType::Mysql => {
+                return Err(QuantumLogError::ConfigError(
+                    "MySQL support not enabled".to_string(),
+                ))
+            }
             #[cfg(not(feature = "postgres"))]
-            DatabaseType::Postgresql => return Err(QuantumLogError::ConfigError("PostgreSQL support not enabled".to_string())),
+            DatabaseType::Postgresql => {
+                return Err(QuantumLogError::ConfigError(
+                    "PostgreSQL support not enabled".to_string(),
+                ))
+            }
         };
-        
+
         let pool = self.pool.clone();
         tokio::task::spawn_blocking(move || {
             match pool {
                 #[cfg(feature = "sqlite")]
                 DatabasePool::Sqlite(pool) => {
-                    let mut conn = pool.get().map_err(|e| QuantumLogError::DatabaseError(format!("获取 SQLite 连接失败: {}", e)))?;
-                    diesel::sql_query(sql).execute(&mut conn)
-                        .map_err(|e| QuantumLogError::DatabaseError(format!("SQLite 表创建失败: {}", e)))?;
-                },
+                    let mut conn = pool.get().map_err(|e| {
+                        QuantumLogError::DatabaseError(format!("获取 SQLite 连接失败: {}", e))
+                    })?;
+                    diesel::sql_query(sql).execute(&mut conn).map_err(|e| {
+                        QuantumLogError::DatabaseError(format!("SQLite 表创建失败: {}", e))
+                    })?;
+                }
                 #[cfg(feature = "mysql")]
                 DatabasePool::Mysql(pool) => {
-                    let mut conn = pool.get().map_err(|e| QuantumLogError::DatabaseError(format!("获取 MySQL 连接失败: {}", e)))?;
-                    diesel::sql_query(sql).execute(&mut conn)
-                        .map_err(|e| QuantumLogError::DatabaseError(format!("MySQL 表创建失败: {}", e)))?;
-                },
+                    let mut conn = pool.get().map_err(|e| {
+                        QuantumLogError::DatabaseError(format!("获取 MySQL 连接失败: {}", e))
+                    })?;
+                    diesel::sql_query(sql).execute(&mut conn).map_err(|e| {
+                        QuantumLogError::DatabaseError(format!("MySQL 表创建失败: {}", e))
+                    })?;
+                }
                 #[cfg(feature = "postgres")]
                 DatabasePool::Postgres(pool) => {
-                    let mut conn = pool.get().map_err(|e| QuantumLogError::DatabaseError(format!("获取 PostgreSQL 连接失败: {}", e)))?;
-                    diesel::sql_query(sql).execute(&mut conn)
-                        .map_err(|e| QuantumLogError::DatabaseError(format!("PostgreSQL 表创建失败: {}", e)))?;
-                },
+                    let mut conn = pool.get().map_err(|e| {
+                        QuantumLogError::DatabaseError(format!("获取 PostgreSQL 连接失败: {}", e))
+                    })?;
+                    diesel::sql_query(sql).execute(&mut conn).map_err(|e| {
+                        QuantumLogError::DatabaseError(format!("PostgreSQL 表创建失败: {}", e))
+                    })?;
+                }
             }
             Ok::<(), QuantumLogError>(())
-        }).await
+        })
+        .await
         .map_err(|e| QuantumLogError::DatabaseError(format!("表创建任务执行失败: {}", e)))?
     }
-    
+
     /// 启动数据库 Sink 任务
     ///
     /// # 参数
@@ -234,9 +271,12 @@ impl DatabaseSink {
         tokio::spawn(async move {
             let mut batch = LogBatch::new();
             let mut flush_interval = interval(Duration::from_secs(1)); // 每秒检查一次是否需要刷新
-            
-            info!("数据库 Sink 任务已启动，数据库类型: {:?}", self.config.db_type);
-            
+
+            info!(
+                "数据库 Sink 任务已启动，数据库类型: {:?}",
+                self.config.db_type
+            );
+
             loop {
                 tokio::select! {
                     // 接收新的日志事件
@@ -245,7 +285,7 @@ impl DatabaseSink {
                             Some(log_event) => {
                                 if let Ok(entry) = self.convert_event_to_entry(&log_event).await {
                                     batch.add_entry(entry);
-                                    
+
                                     // 检查是否需要刷新批次
                                     if batch.is_full(self.config.batch_size) {
                                         if let Err(e) = self.flush_batch(&mut batch).await {
@@ -265,7 +305,7 @@ impl DatabaseSink {
                             }
                         }
                     },
-                    
+
                     // 定期刷新检查
                     _ = flush_interval.tick() => {
                         if !batch.is_empty() && (batch.is_expired(5) || batch.is_full(self.config.batch_size)) {
@@ -277,7 +317,7 @@ impl DatabaseSink {
                             }
                         }
                     },
-                    
+
                     // 接收停机信号
                     _ = shutdown_signal.recv() => {
                         info!("收到停机信号，正在刷新剩余的数据库批次");
@@ -290,17 +330,17 @@ impl DatabaseSink {
                     }
                 }
             }
-            
+
             info!("数据库 Sink 任务已停止");
             Ok(())
         })
     }
-    
+
     /// 将 QuantumLogEvent 转换为 NewQuantumLogEntry
     #[cfg(feature = "database")]
     async fn convert_event_to_entry(&self, event: &QuantumLogEvent) -> Result<NewQuantumLogEntry> {
         use chrono::Utc;
-        
+
         let mut entry = NewQuantumLogEntry::new(
             event.timestamp.naive_utc(),
             event.level.to_string(),
@@ -311,54 +351,53 @@ impl DatabaseSink {
             event.context.hostname.clone().unwrap_or_default(),
             event.context.username.clone().unwrap_or_default(),
         );
-        
+
         // 设置可选字段
         if let Some(ref file_path) = event.file {
             entry = entry.with_file_info(Some(file_path.clone()), event.line.map(|l| l as i32));
         }
-        
+
         if let Some(ref module_path) = event.module_path {
             entry = entry.with_module_path(Some(module_path.clone()));
         }
-        
+
         if let Some(mpi_rank) = event.context.mpi_rank {
             entry = entry.with_mpi_rank(Some(mpi_rank));
         }
-        
+
         // Note: span_id and span_name fields don't exist in QuantumLogEvent
         // This code is commented out until the event structure is updated
         // if let Some(ref span_id) = event.span_id {
         //     entry = entry.with_span_info(Some(span_id.clone()), event.span_name.clone());
         // }
-        
+
         // 序列化额外字段
         if !event.fields.is_empty() {
             let fields_json = serde_json::to_string(&event.fields)
                 .map_err(|e| QuantumLogError::SerializationError { source: e })?;
             entry = entry.with_fields(Some(fields_json));
         }
-        
+
         Ok(entry)
     }
-    
+
     /// 刷新批次到数据库
     #[cfg(feature = "database")]
     async fn flush_batch(&self, batch: &mut LogBatch) -> Result<()> {
         if batch.is_empty() {
             return Ok(());
         }
-        
+
         let entries = batch.entries.clone();
         let pool = self.pool.clone();
         let batch_size = entries.len();
-        
+
         debug!("正在刷新 {} 条日志到数据库", batch_size);
-        
+
         // 使用 spawn_blocking 在阻塞线程池中执行数据库操作
-        let result = tokio::task::spawn_blocking(move || {
-            Self::insert_batch_blocking(pool, entries)
-        }).await;
-        
+        let result =
+            tokio::task::spawn_blocking(move || Self::insert_batch_blocking(pool, entries)).await;
+
         match result {
             Ok(Ok(())) => {
                 debug!("成功写入 {} 条日志到数据库", batch_size);
@@ -367,11 +406,11 @@ impl DatabaseSink {
                 }
                 batch.clear();
                 Ok(())
-            },
+            }
             Ok(Err(e)) => {
                 error!("数据库批量插入失败: {}", e);
                 Err(e)
-            },
+            }
             Err(e) => {
                 let error_msg = format!("数据库任务执行失败: {}", e);
                 error!("{}", error_msg);
@@ -379,73 +418,86 @@ impl DatabaseSink {
             }
         }
     }
-    
+
     /// 在阻塞线程中执行批量插入
     #[cfg(feature = "database")]
     fn insert_batch_blocking(pool: DatabasePool, entries: Vec<NewQuantumLogEntry>) -> Result<()> {
         use crate::sinks::database::schema::quantum_logs;
-        
+
         match pool {
             #[cfg(feature = "sqlite")]
             DatabasePool::Sqlite(pool) => {
-                let mut conn = pool.get()
-                    .map_err(|e| QuantumLogError::DatabaseError(format!("获取 SQLite 连接失败: {}", e)))?;
-                
+                let mut conn = pool.get().map_err(|e| {
+                    QuantumLogError::DatabaseError(format!("获取 SQLite 连接失败: {}", e))
+                })?;
+
                 diesel::insert_into(quantum_logs::table)
                     .values(&entries)
                     .execute(&mut conn)
-                    .map_err(|e| QuantumLogError::DatabaseError(format!("SQLite 批量插入失败: {}", e)))?;
-            },
+                    .map_err(|e| {
+                        QuantumLogError::DatabaseError(format!("SQLite 批量插入失败: {}", e))
+                    })?;
+            }
             #[cfg(feature = "mysql")]
             DatabasePool::Mysql(pool) => {
-                let mut conn = pool.get()
-                    .map_err(|e| QuantumLogError::DatabaseError(format!("获取 MySQL 连接失败: {}", e)))?;
-                
+                let mut conn = pool.get().map_err(|e| {
+                    QuantumLogError::DatabaseError(format!("获取 MySQL 连接失败: {}", e))
+                })?;
+
                 diesel::insert_into(quantum_logs::table)
                     .values(&entries)
                     .execute(&mut conn)
-                    .map_err(|e| QuantumLogError::DatabaseError(format!("MySQL 批量插入失败: {}", e)))?;
-            },
+                    .map_err(|e| {
+                        QuantumLogError::DatabaseError(format!("MySQL 批量插入失败: {}", e))
+                    })?;
+            }
             #[cfg(feature = "postgres")]
             DatabasePool::Postgres(pool) => {
-                let mut conn = pool.get()
-                    .map_err(|e| QuantumLogError::DatabaseError(format!("获取 PostgreSQL 连接失败: {}", e)))?;
-                
+                let mut conn = pool.get().map_err(|e| {
+                    QuantumLogError::DatabaseError(format!("获取 PostgreSQL 连接失败: {}", e))
+                })?;
+
                 diesel::insert_into(quantum_logs::table)
                     .values(&entries)
                     .execute(&mut conn)
-                    .map_err(|e| QuantumLogError::DatabaseError(format!("PostgreSQL 批量插入失败: {}", e)))?;
-            },
+                    .map_err(|e| {
+                        QuantumLogError::DatabaseError(format!("PostgreSQL 批量插入失败: {}", e))
+                    })?;
+            }
         }
-        
+
         Ok(())
     }
-    
+
     /// 测试数据库连接
     #[cfg(feature = "database")]
     pub async fn test_connection(&self) -> Result<()> {
         let pool = self.pool.clone();
-        
+
         tokio::task::spawn_blocking(move || {
             match pool {
                 #[cfg(feature = "sqlite")]
                 DatabasePool::Sqlite(pool) => {
-                    let _conn = pool.get()
-                        .map_err(|e| QuantumLogError::DatabaseError(format!("SQLite 连接测试失败: {}", e)))?;
-                },
+                    let _conn = pool.get().map_err(|e| {
+                        QuantumLogError::DatabaseError(format!("SQLite 连接测试失败: {}", e))
+                    })?;
+                }
                 #[cfg(feature = "mysql")]
                 DatabasePool::Mysql(pool) => {
-                    let _conn = pool.get()
-                        .map_err(|e| QuantumLogError::DatabaseError(format!("MySQL 连接测试失败: {}", e)))?;
-                },
+                    let _conn = pool.get().map_err(|e| {
+                        QuantumLogError::DatabaseError(format!("MySQL 连接测试失败: {}", e))
+                    })?;
+                }
                 #[cfg(feature = "postgres")]
                 DatabasePool::Postgres(pool) => {
-                    let _conn = pool.get()
-                        .map_err(|e| QuantumLogError::DatabaseError(format!("PostgreSQL 连接测试失败: {}", e)))?;
-                },
+                    let _conn = pool.get().map_err(|e| {
+                        QuantumLogError::DatabaseError(format!("PostgreSQL 连接测试失败: {}", e))
+                    })?;
+                }
             }
             Ok::<(), QuantumLogError>(())
-        }).await
+        })
+        .await
         .map_err(|e| QuantumLogError::DatabaseError(format!("连接测试任务执行失败: {}", e)))?
     }
 }
@@ -456,17 +508,15 @@ impl DatabaseSink {
     pub async fn new(_config: DatabaseSinkConfig) -> Result<Self> {
         Err(QuantumLogError::FeatureNotEnabled("database".to_string()))
     }
-    
+
     pub fn spawn_task(
         self,
         _receiver: mpsc::Receiver<QuantumLogEvent>,
         _shutdown_signal: tokio::sync::broadcast::Receiver<()>,
     ) -> tokio::task::JoinHandle<Result<()>> {
-        tokio::spawn(async {
-            Err(QuantumLogError::FeatureNotEnabled("database".to_string()))
-        })
+        tokio::spawn(async { Err(QuantumLogError::FeatureNotEnabled("database".to_string())) })
     }
-    
+
     pub async fn test_connection(&self) -> Result<()> {
         Err(QuantumLogError::FeatureNotEnabled("database".to_string()))
     }
@@ -477,13 +527,13 @@ mod tests {
     use super::*;
     use crate::config::DatabaseType;
     use tempfile::tempdir;
-    
+
     #[tokio::test]
     #[cfg(feature = "sqlite")]
     async fn test_sqlite_database_sink_creation() {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        
+
         let config = DatabaseSinkConfig {
             enabled: true,
             level: Some("INFO".to_string()),
@@ -496,19 +546,19 @@ mod tests {
             connection_timeout_ms: 5000,
             auto_create_table: true,
         };
-        
+
         let sink = DatabaseSink::new(config).await;
         assert!(sink.is_ok());
-        
+
         let sink = sink.unwrap();
         assert!(sink.test_connection().await.is_ok());
     }
-    
+
     #[tokio::test]
     async fn test_log_batch_operations() {
         let mut batch = LogBatch::new();
         assert!(batch.is_empty());
-        
+
         let entry = NewQuantumLogEntry::new(
             chrono::Utc::now().naive_utc(),
             "INFO".to_string(),
@@ -519,11 +569,11 @@ mod tests {
             "localhost".to_string(),
             "testuser".to_string(),
         );
-        
+
         batch.add_entry(entry);
         assert!(!batch.is_empty());
         assert_eq!(batch.len(), 1);
-        
+
         batch.clear();
         assert!(batch.is_empty());
     }

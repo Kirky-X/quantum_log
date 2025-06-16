@@ -154,27 +154,34 @@ impl PreInitBufferLayer {
 
         impl<'a> tracing::field::Visit for FieldExtractor<'a> {
             fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-                self.fields.insert(field.name().to_string(), format!("{:?}", value));
+                self.fields
+                    .insert(field.name().to_string(), format!("{:?}", value));
             }
 
             fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-                self.fields.insert(field.name().to_string(), value.to_string());
+                self.fields
+                    .insert(field.name().to_string(), value.to_string());
             }
 
             fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
-                self.fields.insert(field.name().to_string(), value.to_string());
+                self.fields
+                    .insert(field.name().to_string(), value.to_string());
             }
 
             fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-                self.fields.insert(field.name().to_string(), value.to_string());
+                self.fields
+                    .insert(field.name().to_string(), value.to_string());
             }
 
             fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
-                self.fields.insert(field.name().to_string(), value.to_string());
+                self.fields
+                    .insert(field.name().to_string(), value.to_string());
             }
         }
 
-        let mut extractor = FieldExtractor { fields: &mut fields };
+        let mut extractor = FieldExtractor {
+            fields: &mut fields,
+        };
         event.record(&mut extractor);
 
         // 创建缓冲事件
@@ -196,11 +203,7 @@ impl<S> Layer<S> for PreInitBufferLayer
 where
     S: tracing::Subscriber + for<'lookup> tracing_subscriber::registry::LookupSpan<'lookup>,
 {
-    fn on_event(
-        &self,
-        event: &Event<'_>,
-        _ctx: Context<'_, S>,
-    ) {
+    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
         // 如果已初始化，不再处理事件
         if self.is_initialized() {
             return;
@@ -223,7 +226,10 @@ impl Clone for PreInitBufferLayer {
 /// 缓冲事件转换为 QuantumLogEvent 的辅助函数
 impl BufferedEvent {
     /// 转换为 QuantumLogEvent
-    pub fn to_quantum_event(&self, context_info: crate::core::event::ContextInfo) -> QuantumLogEvent {
+    pub fn to_quantum_event(
+        &self,
+        context_info: crate::core::event::ContextInfo,
+    ) -> QuantumLogEvent {
         // 创建临时的 Metadata
         let metadata = tracing::Metadata::new(
             "buffered_event",
@@ -233,16 +239,20 @@ impl BufferedEvent {
             self.line,
             self.module_path.as_deref(),
             {
-                static CALLSITE: tracing::callsite::DefaultCallsite = tracing::callsite::DefaultCallsite::new(&tracing::Metadata::new(
-                    "buffered_event",
-                    "quantum_log::pre_init_buffer",
-                    tracing::Level::INFO,
-                    Some(file!()),
-                    Some(line!()),
-                    Some(module_path!()),
-                    tracing::field::FieldSet::new(&[], tracing::callsite::Identifier(&CALLSITE)),
-                    tracing::metadata::Kind::EVENT,
-                ));
+                static CALLSITE: tracing::callsite::DefaultCallsite =
+                    tracing::callsite::DefaultCallsite::new(&tracing::Metadata::new(
+                        "buffered_event",
+                        "quantum_log::pre_init_buffer",
+                        tracing::Level::INFO,
+                        Some(file!()),
+                        Some(line!()),
+                        Some(module_path!()),
+                        tracing::field::FieldSet::new(
+                            &[],
+                            tracing::callsite::Identifier(&CALLSITE),
+                        ),
+                        tracing::metadata::Kind::EVENT,
+                    ));
                 tracing::field::FieldSet::new(&[], tracing::callsite::Identifier(&CALLSITE))
             },
             tracing::metadata::Kind::EVENT,
@@ -255,17 +265,14 @@ impl BufferedEvent {
         }
 
         // 获取消息
-        let message = self.fields.get("message")
+        let message = self
+            .fields
+            .get("message")
             .cloned()
             .unwrap_or_else(|| format!("Buffered event from {}", self.target));
 
-        let mut quantum_event = QuantumLogEvent::new(
-            self.level,
-            message,
-            &metadata,
-            fields,
-            context_info,
-        );
+        let mut quantum_event =
+            QuantumLogEvent::new(self.level, message, &metadata, fields, context_info);
 
         // 使用原始时间戳
         quantum_event.timestamp = self.timestamp;
@@ -294,7 +301,7 @@ mod tests {
     fn test_buffer_initialization() {
         let buffer = PreInitBufferLayer::new(100);
         assert!(!buffer.is_initialized());
-        
+
         buffer.mark_initialized();
         assert!(buffer.is_initialized());
     }
@@ -303,7 +310,7 @@ mod tests {
     fn test_buffer_disable() {
         let mut buffer = PreInitBufferLayer::new(100);
         assert!(buffer.enabled);
-        
+
         buffer.disable();
         assert!(!buffer.enabled);
     }
@@ -311,7 +318,7 @@ mod tests {
     #[test]
     fn test_buffer_overflow() {
         let buffer = PreInitBufferLayer::new(2); // 很小的缓冲区
-        
+
         // 创建测试事件
         let metadata = tracing::Metadata::new(
             "test",
@@ -321,16 +328,20 @@ mod tests {
             Some(42),
             Some("test_module"),
             {
-                static CALLSITE: tracing::callsite::DefaultCallsite = tracing::callsite::DefaultCallsite::new(&tracing::Metadata::new(
-                    "test_event",
-                    "quantum_log::pre_init_buffer::test",
-                    tracing::Level::INFO,
-                    Some(file!()),
-                    Some(line!()),
-                    Some(module_path!()),
-                    tracing::field::FieldSet::new(&[], tracing::callsite::Identifier(&CALLSITE)),
-                    tracing::metadata::Kind::EVENT,
-                ));
+                static CALLSITE: tracing::callsite::DefaultCallsite =
+                    tracing::callsite::DefaultCallsite::new(&tracing::Metadata::new(
+                        "test_event",
+                        "quantum_log::pre_init_buffer::test",
+                        tracing::Level::INFO,
+                        Some(file!()),
+                        Some(line!()),
+                        Some(module_path!()),
+                        tracing::field::FieldSet::new(
+                            &[],
+                            tracing::callsite::Identifier(&CALLSITE),
+                        ),
+                        tracing::metadata::Kind::EVENT,
+                    ));
                 tracing::field::FieldSet::new(&[], tracing::callsite::Identifier(&CALLSITE))
             },
             tracing::metadata::Kind::EVENT,
@@ -344,7 +355,7 @@ mod tests {
                     buf.events.pop_front();
                     buf.dropped_count += 1;
                 }
-                
+
                 let event = BufferedEvent {
                     level: Level::INFO,
                     target: "test".to_string(),
@@ -354,11 +365,11 @@ mod tests {
                     fields: std::collections::HashMap::new(),
                     timestamp: chrono::Utc::now(),
                 };
-                
+
                 buf.events.push_back(event);
             }
         }
-        
+
         assert_eq!(buffer.get_buffer_size(), 2); // 应该只保留最新的2个
         assert_eq!(buffer.get_dropped_count(), 3); // 应该丢弃了3个
     }
@@ -366,7 +377,7 @@ mod tests {
     #[test]
     fn test_drain_events() {
         let buffer = PreInitBufferLayer::new(100);
-        
+
         // 手动添加一些事件到缓冲区
         if let Ok(mut buf) = buffer.buffer.lock() {
             for i in 0..3 {
@@ -382,13 +393,13 @@ mod tests {
                 buf.events.push_back(event);
             }
         }
-        
+
         assert_eq!(buffer.get_buffer_size(), 3);
-        
+
         let drained = buffer.drain_buffered_events();
         assert_eq!(drained.len(), 3);
         assert_eq!(buffer.get_buffer_size(), 0);
-        
+
         // 检查事件顺序
         assert_eq!(drained[0].target, "test_0");
         assert_eq!(drained[1].target, "test_1");
@@ -411,10 +422,10 @@ mod tests {
             },
             timestamp: chrono::Utc::now(),
         };
-        
+
         let context_info = crate::core::event::ContextInfo::default();
         let quantum_event = buffered_event.to_quantum_event(context_info);
-        
+
         assert_eq!(quantum_event.level, "INFO");
         assert_eq!(quantum_event.target, "test_target");
         assert_eq!(quantum_event.message, "Test message");

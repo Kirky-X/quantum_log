@@ -1,26 +1,58 @@
 //! 定义 QuantumLog (灵迹) 日志框架的所有配置结构体。
 
 use serde::Deserialize;
-use std::path::PathBuf;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 // --- 辅助函数，用于提供配置项的默认值 ---
-fn default_global_level() -> String { "INFO".to_string() }
-fn default_true() -> bool { true }
-fn default_false() -> bool { false }
-fn default_true_option() -> Option<bool> { Some(true) }
-fn default_timestamp_format() -> String { "%Y-%m-%d %H:%M:%S%.3f".to_string() }
-fn default_log_template() -> String { "{timestamp} [{level}] {target} - {message}".to_string() }
-fn default_json_fields_key() -> String { "fields".to_string() }
-fn default_file_sink_filename_base() -> String { "quantum".to_string() }
-fn default_file_buffer_size() -> usize { 8192 }
-fn default_writer_cache_ttl_seconds() -> u64 { 300 } // 5 minutes
-fn default_writer_cache_capacity() -> u64 { 1024 }
-fn default_db_table_name() -> String { "quantum_logs".to_string() }
-fn default_db_batch_size() -> usize { 100 }
-fn default_db_pool_size() -> u32 { 5 }
-fn default_db_connection_timeout_ms() -> u64 { 5000 }
-fn default_output_format() -> OutputFormat { OutputFormat::Text }
+fn default_global_level() -> String {
+    "INFO".to_string()
+}
+fn default_true() -> bool {
+    true
+}
+fn default_false() -> bool {
+    false
+}
+fn default_true_option() -> Option<bool> {
+    Some(true)
+}
+fn default_timestamp_format() -> String {
+    "%Y-%m-%d %H:%M:%S%.3f".to_string()
+}
+fn default_log_template() -> String {
+    "{timestamp} [{level}] {target} - {message}".to_string()
+}
+fn default_json_fields_key() -> String {
+    "fields".to_string()
+}
+fn default_file_sink_filename_base() -> String {
+    "quantum".to_string()
+}
+fn default_file_buffer_size() -> usize {
+    8192
+}
+fn default_writer_cache_ttl_seconds() -> u64 {
+    300
+} // 5 minutes
+fn default_writer_cache_capacity() -> u64 {
+    1024
+}
+fn default_db_table_name() -> String {
+    "quantum_logs".to_string()
+}
+fn default_db_batch_size() -> usize {
+    100
+}
+fn default_db_pool_size() -> u32 {
+    5
+}
+fn default_db_connection_timeout_ms() -> u64 {
+    5000
+}
+fn default_output_format() -> OutputFormat {
+    OutputFormat::Text
+}
 
 /// 定义当日志通道已满时的背压处理策略。
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq, Default)]
@@ -123,7 +155,7 @@ pub enum LogLevel {
 
 impl std::str::FromStr for LogLevel {
     type Err = String;
-    
+
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_uppercase().as_str() {
             "TRACE" => Ok(LogLevel::Trace),
@@ -228,15 +260,19 @@ impl Default for StdoutConfig {
 
 /// 文件输出类型。
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
-pub enum FileOutputType { Text, Csv, Json }
+pub enum FileOutputType {
+    Text,
+    Csv,
+    Json,
+}
 
 /// 文件分离策略。
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq, Default)]
-pub enum FileSeparationStrategy { 
-    #[default] 
-    None, 
-    ByPid, 
-    ByTid, 
+pub enum FileSeparationStrategy {
+    #[default]
+    None,
+    ByPid,
+    ByTid,
     ByMpiRank,
     Level,
     Module,
@@ -245,7 +281,12 @@ pub enum FileSeparationStrategy {
 
 /// 日志文件轮转策略。
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
-pub enum RotationStrategy { None, Hourly, Daily, Size }
+pub enum RotationStrategy {
+    None,
+    Hourly,
+    Daily,
+    Size,
+}
 
 /// 日志文件轮转配置。
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -283,7 +324,11 @@ pub struct FileSinkConfig {
 
 /// 支持的数据库类型。
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
-pub enum DatabaseType { Sqlite, Mysql, Postgresql }
+pub enum DatabaseType {
+    Sqlite,
+    Mysql,
+    Postgresql,
+}
 
 /// 文件配置（别名）
 pub type FileConfig = FileSinkConfig;
@@ -355,7 +400,9 @@ pub fn load_config_from_file(path: &std::path::Path) -> crate::error::Result<Qua
     use std::fs;
 
     if !path.exists() {
-        return Err(QuantumLogError::ConfigFileMissing(path.to_string_lossy().into_owned()));
+        return Err(QuantumLogError::ConfigFileMissing(
+            path.to_string_lossy().into_owned(),
+        ));
     }
 
     let config_str = fs::read_to_string(path)?;
@@ -368,7 +415,7 @@ pub fn load_config_from_file(path: &std::path::Path) -> crate::error::Result<Qua
 /// 用于从 TOML 字符串加载 `QuantumLoggerConfig` 的辅助函数。
 pub fn load_config_from_str(config_str: &str) -> crate::error::Result<QuantumLoggerConfig> {
     use crate::error::QuantumLogError;
-    
+
     let config: QuantumLoggerConfig = toml::from_str(config_str)
         .map_err(|e| QuantumLogError::ConfigError(format!("TOML解析失败: {}", e)))?;
 
@@ -378,62 +425,67 @@ pub fn load_config_from_str(config_str: &str) -> crate::error::Result<QuantumLog
 /// 验证配置的有效性。
 pub fn validate_config(config: &QuantumLoggerConfig) -> crate::error::Result<()> {
     use crate::error::QuantumLogError;
-    
+
     // 验证全局日志级别
     match config.global_level.to_uppercase().as_str() {
-        "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR" => {},
-        _ => return Err(QuantumLogError::InvalidLogLevel(config.global_level.clone())),
+        "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR" => {}
+        _ => {
+            return Err(QuantumLogError::InvalidLogLevel(
+                config.global_level.clone(),
+            ))
+        }
     }
-    
+
     // 验证各个sink的日志级别
     if let Some(ref stdout_config) = config.stdout {
         if let Some(ref level) = stdout_config.level {
             match level.to_uppercase().as_str() {
-                "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR" => {},
+                "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR" => {}
                 _ => return Err(QuantumLogError::InvalidLogLevel(level.clone())),
             }
         }
     }
-    
+
     if let Some(ref file_config) = config.file {
         if let Some(ref level) = file_config.level {
             match level.to_uppercase().as_str() {
-                "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR" => {},
+                "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR" => {}
                 _ => return Err(QuantumLogError::InvalidLogLevel(level.clone())),
             }
         }
-        
+
         // 验证文件路径
         if !file_config.directory.is_absolute() {
-            return Err(QuantumLogError::InvalidPath(
-                format!("文件输出目录必须是绝对路径: {:?}", file_config.directory)
-            ));
+            return Err(QuantumLogError::InvalidPath(format!(
+                "文件输出目录必须是绝对路径: {:?}",
+                file_config.directory
+            )));
         }
     }
-    
+
     if let Some(ref db_config) = config.database {
         if let Some(ref level) = db_config.level {
             match level.to_uppercase().as_str() {
-                "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR" => {},
+                "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR" => {}
                 _ => return Err(QuantumLogError::InvalidLogLevel(level.clone())),
             }
         }
-        
+
         // 验证数据库连接字符串不为空
         if db_config.connection_string.trim().is_empty() {
             return Err(QuantumLogError::ConfigError(
-                "数据库连接字符串不能为空".to_string()
+                "数据库连接字符串不能为空".to_string(),
             ));
         }
     }
-    
+
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_default_config() {
         let config = QuantumLoggerConfig::default();
@@ -444,7 +496,7 @@ mod tests {
         assert!(config.file.is_none());
         assert!(config.database.is_none());
     }
-    
+
     #[test]
     fn test_context_fields_config_defaults() {
         let config = ContextFieldsConfig::default();
@@ -459,17 +511,20 @@ mod tests {
         assert_eq!(config.hostname, false);
         assert_eq!(config.span_info, false);
     }
-    
+
     #[test]
     fn test_log_format_config_defaults() {
         let config = LogFormatConfig::default();
         assert_eq!(config.timestamp_format, "%Y-%m-%d %H:%M:%S%.3f");
-        assert_eq!(config.template, "{timestamp} [{level}] {target} - {message}");
+        assert_eq!(
+            config.template,
+            "{timestamp} [{level}] {target} - {message}"
+        );
         assert!(config.csv_columns.is_none());
         assert_eq!(config.json_flatten_fields, false);
         assert_eq!(config.json_fields_key, "fields");
     }
-    
+
     #[test]
     fn test_stdout_config_defaults() {
         let config = StdoutConfig::default();
@@ -478,19 +533,19 @@ mod tests {
         assert_eq!(config.color_enabled, Some(true));
         assert!(config.level_colors.is_none());
     }
-    
+
     #[test]
     fn test_backpressure_strategy_default() {
         let strategy = BackpressureStrategy::default();
         assert_eq!(strategy, BackpressureStrategy::Drop);
     }
-    
+
     #[test]
     fn test_file_separation_strategy_default() {
         let strategy = FileSeparationStrategy::default();
         assert_eq!(strategy, FileSeparationStrategy::None);
     }
-    
+
     #[test]
     fn test_load_config_from_str_basic() {
         let toml_str = r#"
@@ -501,17 +556,17 @@ mod tests {
             enabled = true
             level = "INFO"
         "#;
-        
+
         let config = load_config_from_str(toml_str).unwrap();
         assert_eq!(config.global_level, "DEBUG");
         assert_eq!(config.pre_init_stdout_enabled, true);
         assert!(config.stdout.is_some());
-        
+
         let stdout_config = config.stdout.unwrap();
         assert_eq!(stdout_config.enabled, true);
         assert_eq!(stdout_config.level, Some("INFO".to_string()));
     }
-    
+
     #[test]
     fn test_load_config_from_str_with_context_fields() {
         let toml_str = r#"
@@ -525,10 +580,10 @@ mod tests {
             tid = true
             mpi_rank = true
         "#;
-        
+
         let config = load_config_from_str(toml_str).unwrap();
         assert_eq!(config.global_level, "TRACE");
-        
+
         let context = &config.context_fields;
         assert_eq!(context.timestamp, true);
         assert_eq!(context.level, true);
@@ -537,7 +592,7 @@ mod tests {
         assert_eq!(context.tid, true);
         assert_eq!(context.mpi_rank, true);
     }
-    
+
     #[test]
     fn test_load_config_from_str_with_file_config() {
         let toml_str = r#"
@@ -557,26 +612,29 @@ mod tests {
             max_files = 7
             compress_rotated_files = true
         "#;
-        
+
         let config = load_config_from_str(toml_str).unwrap();
         assert!(config.file.is_some());
-        
+
         let file_config = config.file.unwrap();
         assert_eq!(file_config.enabled, true);
         assert_eq!(file_config.output_type, FileOutputType::Json);
         assert_eq!(file_config.directory, PathBuf::from("/tmp/logs"));
         assert_eq!(file_config.filename_base, "test");
         assert_eq!(file_config.extension, Some("log".to_string()));
-        assert_eq!(file_config.separation_strategy, FileSeparationStrategy::ByPid);
+        assert_eq!(
+            file_config.separation_strategy,
+            FileSeparationStrategy::ByPid
+        );
         assert_eq!(file_config.write_buffer_size, 4096);
-        
+
         assert!(file_config.rotation.is_some());
         let rotation = file_config.rotation.unwrap();
         assert_eq!(rotation.strategy, RotationStrategy::Daily);
         assert_eq!(rotation.max_files, Some(7));
         assert_eq!(rotation.compress_rotated_files, true);
     }
-    
+
     #[test]
     fn test_load_config_from_str_with_database_config() {
         let toml_str = r#"
@@ -592,10 +650,10 @@ mod tests {
             connection_pool_size = 3
             auto_create_table = false
         "#;
-        
+
         let config = load_config_from_str(toml_str).unwrap();
         assert!(config.database.is_some());
-        
+
         let db_config = config.database.unwrap();
         assert_eq!(db_config.enabled, true);
         assert_eq!(db_config.level, Some("ERROR".to_string()));
@@ -606,31 +664,31 @@ mod tests {
         assert_eq!(db_config.connection_pool_size, 3);
         assert_eq!(db_config.auto_create_table, false);
     }
-    
+
     #[test]
     fn test_validate_config_valid() {
         let mut config = QuantumLoggerConfig::default();
         config.global_level = "INFO".to_string();
-        
+
         let result = validate_config(&config);
         assert!(result.is_ok());
     }
-    
+
     #[test]
     fn test_validate_config_invalid_global_level() {
         let mut config = QuantumLoggerConfig::default();
         config.global_level = "INVALID".to_string();
-        
+
         let result = validate_config(&config);
         assert!(result.is_err());
-        
+
         if let Err(crate::error::QuantumLogError::InvalidLogLevel(level)) = result {
             assert_eq!(level, "INVALID");
         } else {
             panic!("Expected InvalidLogLevel error");
         }
     }
-    
+
     #[test]
     fn test_validate_config_invalid_stdout_level() {
         let mut config = QuantumLoggerConfig::default();
@@ -642,11 +700,11 @@ mod tests {
             format: crate::config::OutputFormat::Text,
             colored: true,
         });
-        
+
         let result = validate_config(&config);
         assert!(result.is_err());
     }
-    
+
     #[test]
     fn test_validate_config_invalid_file_path() {
         let mut config = QuantumLoggerConfig::default();
@@ -663,11 +721,11 @@ mod tests {
             writer_cache_ttl_seconds: 300,
             writer_cache_capacity: 1024,
         });
-        
+
         let result = validate_config(&config);
         assert!(result.is_err());
     }
-    
+
     #[test]
     fn test_validate_config_empty_database_connection() {
         let mut config = QuantumLoggerConfig::default();
@@ -683,21 +741,21 @@ mod tests {
             connection_timeout_ms: 5000,
             auto_create_table: true,
         });
-        
+
         let result = validate_config(&config);
         assert!(result.is_err());
     }
-    
+
     #[test]
     fn test_load_config_from_str_invalid_toml() {
         let invalid_toml = r#"
             global_level = "INFO
             # 缺少引号结束
         "#;
-        
+
         let result = load_config_from_str(invalid_toml);
         assert!(result.is_err());
-        
+
         if let Err(crate::error::QuantumLogError::ConfigError(msg)) = result {
             assert!(msg.contains("TOML解析失败"));
         } else {

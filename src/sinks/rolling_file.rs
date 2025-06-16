@@ -5,7 +5,7 @@
 use crate::config::RollingFileConfig;
 use crate::core::event::QuantumLogEvent;
 use crate::error::{QuantumLogError, Result};
-use crate::sinks::file_common::{FileWriter, FileCleaner, FilePathGenerator};
+use crate::sinks::file_common::{FileCleaner, FilePathGenerator, FileWriter};
 use crate::utils::FileTools;
 
 use std::collections::HashMap;
@@ -129,42 +129,63 @@ impl RollingFileSinkProcessor {
     async fn new(config: RollingFileConfig) -> Result<Self> {
         // 确保目录存在
         FileTools::ensure_directory_exists(&config.directory)?;
-        
+
         // 检查目录权限
         if !FileTools::is_directory_writable(&config.directory) {
             return Err(QuantumLogError::IoError {
                 source: std::io::Error::new(
                     std::io::ErrorKind::PermissionDenied,
-                    format!("目录不可写: {}", config.directory.display())
-                )
+                    format!("目录不可写: {}", config.directory.display()),
+                ),
             });
         }
 
         let pattern = match config.separation_strategy {
             crate::config::FileSeparationStrategy::ByPid => {
-                format!("{}_{{pid}}.{}", config.filename_base, config.extension.as_deref().unwrap_or("log"))
+                format!(
+                    "{}_{{pid}}.{}",
+                    config.filename_base,
+                    config.extension.as_deref().unwrap_or("log")
+                )
             }
             crate::config::FileSeparationStrategy::ByTid => {
-                format!("{}_{{tid}}.{}", config.filename_base, config.extension.as_deref().unwrap_or("log"))
+                format!(
+                    "{}_{{tid}}.{}",
+                    config.filename_base,
+                    config.extension.as_deref().unwrap_or("log")
+                )
             }
             crate::config::FileSeparationStrategy::Level => {
-                format!("{}_{{level}}.{}", config.filename_base, config.extension.as_deref().unwrap_or("log"))
+                format!(
+                    "{}_{{level}}.{}",
+                    config.filename_base,
+                    config.extension.as_deref().unwrap_or("log")
+                )
             }
             crate::config::FileSeparationStrategy::Module => {
-                format!("{}_{{module}}.{}", config.filename_base, config.extension.as_deref().unwrap_or("log"))
+                format!(
+                    "{}_{{module}}.{}",
+                    config.filename_base,
+                    config.extension.as_deref().unwrap_or("log")
+                )
             }
             crate::config::FileSeparationStrategy::Time => {
-                format!("{}_{{time}}.{}", config.filename_base, config.extension.as_deref().unwrap_or("log"))
+                format!(
+                    "{}_{{time}}.{}",
+                    config.filename_base,
+                    config.extension.as_deref().unwrap_or("log")
+                )
             }
             _ => {
-                format!("{}.{}", config.filename_base, config.extension.as_deref().unwrap_or("log"))
+                format!(
+                    "{}.{}",
+                    config.filename_base,
+                    config.extension.as_deref().unwrap_or("log")
+                )
             }
         };
-        
-        let path_generator = FilePathGenerator::new(
-            &config.directory,
-            pattern,
-        );
+
+        let path_generator = FilePathGenerator::new(&config.directory, pattern);
 
         let cleaner = if let Some(ref rotation) = config.rotation {
             let mut cleaner = FileCleaner::new(&config.directory);
@@ -244,13 +265,13 @@ impl RollingFileSinkProcessor {
             crate::config::FileSeparationStrategy::ByTid => {
                 format!("tid_{:?}", std::thread::current().id())
             }
-            crate::config::FileSeparationStrategy::ByMpiRank => {
-                "mpi_rank".to_string()
-            }
+            crate::config::FileSeparationStrategy::ByMpiRank => "mpi_rank".to_string(),
             crate::config::FileSeparationStrategy::Level => event.level.to_string(),
-            crate::config::FileSeparationStrategy::Module => {
-                event.module_path.as_deref().unwrap_or("unknown").to_string()
-            }
+            crate::config::FileSeparationStrategy::Module => event
+                .module_path
+                .as_deref()
+                .unwrap_or("unknown")
+                .to_string(),
             crate::config::FileSeparationStrategy::Time => {
                 event.timestamp.format("%Y%m%d_%H").to_string()
             }
@@ -261,31 +282,49 @@ impl RollingFileSinkProcessor {
     fn generate_file_path(&self, event: &QuantumLogEvent, _file_key: &str) -> Result<PathBuf> {
         match &self.config.separation_strategy {
             crate::config::FileSeparationStrategy::None => {
-                let filename = format!("{}.{}", self.config.filename_base, self.config.extension.as_deref().unwrap_or("log"));
+                let filename = format!(
+                    "{}.{}",
+                    self.config.filename_base,
+                    self.config.extension.as_deref().unwrap_or("log")
+                );
                 Ok(self.config.directory.join(filename))
             }
             crate::config::FileSeparationStrategy::ByPid => {
-                let filename = format!("{}_{}.{}", self.config.filename_base, std::process::id(), self.config.extension.as_deref().unwrap_or("log"));
+                let filename = format!(
+                    "{}_{}.{}",
+                    self.config.filename_base,
+                    std::process::id(),
+                    self.config.extension.as_deref().unwrap_or("log")
+                );
                 Ok(self.config.directory.join(filename))
             }
             crate::config::FileSeparationStrategy::ByTid => {
-                let filename = format!("{}_{:?}.{}", self.config.filename_base, std::thread::current().id(), self.config.extension.as_deref().unwrap_or("log"));
+                let filename = format!(
+                    "{}_{:?}.{}",
+                    self.config.filename_base,
+                    std::thread::current().id(),
+                    self.config.extension.as_deref().unwrap_or("log")
+                );
                 Ok(self.config.directory.join(filename))
             }
             crate::config::FileSeparationStrategy::ByMpiRank => {
-                let filename = format!("{}_mpi.{}", self.config.filename_base, self.config.extension.as_deref().unwrap_or("log"));
+                let filename = format!(
+                    "{}_mpi.{}",
+                    self.config.filename_base,
+                    self.config.extension.as_deref().unwrap_or("log")
+                );
                 Ok(self.config.directory.join(filename))
             }
-            crate::config::FileSeparationStrategy::Level => {
-                Ok(self.path_generator.generate_level_based_path(&event.level.to_string()))
-            }
+            crate::config::FileSeparationStrategy::Level => Ok(self
+                .path_generator
+                .generate_level_based_path(&event.level.to_string())),
             crate::config::FileSeparationStrategy::Module => {
                 let module = event.module_path.as_deref().unwrap_or("unknown");
                 Ok(self.path_generator.generate_module_based_path(module))
             }
-            crate::config::FileSeparationStrategy::Time => {
-                Ok(self.path_generator.generate_time_based_path(event.timestamp))
-            }
+            crate::config::FileSeparationStrategy::Time => Ok(self
+                .path_generator
+                .generate_time_based_path(event.timestamp)),
         }
     }
 
@@ -305,7 +344,7 @@ impl RollingFileSinkProcessor {
 
         // 需要创建新的写入器，获取写锁
         let mut writers = self.writers.write().await;
-        
+
         // 双重检查
         if let Some(writer) = writers.get(file_key) {
             return Ok(writer.clone());
@@ -316,7 +355,10 @@ impl RollingFileSinkProcessor {
             enabled: true,
             level: self.config.level.clone(),
             output_type: self.config.output_type.clone(),
-            directory: file_path.parent().unwrap_or(&self.config.directory).to_path_buf(),
+            directory: file_path
+                .parent()
+                .unwrap_or(&self.config.directory)
+                .to_path_buf(),
             filename_base: file_path
                 .file_stem()
                 .and_then(|s| s.to_str())
@@ -343,33 +385,29 @@ impl RollingFileSinkProcessor {
     /// 格式化事件
     fn format_event(&self, event: &QuantumLogEvent) -> Result<String> {
         match &self.config.output_type {
-            crate::config::FileOutputType::Json => {
-                serde_json::to_string(event)
-                    .map(|s| format!("{}\n", s))
-                    .map_err(|e| QuantumLogError::InternalError(format!("JSON serialization failed: {}", e)))
-            }
-            crate::config::FileOutputType::Text => {
-                Ok(format!(
-                    "[{}] {} [{}:{}] {}: {}\n",
-                    event.timestamp.format("%Y-%m-%d %H:%M:%S%.3f"),
-                    event.level,
-                    event.module_path.as_deref().unwrap_or("unknown"),
-                    event.line.unwrap_or(0),
-                    event.target,
-                    event.message
-                ))
-            }
-            crate::config::FileOutputType::Csv => {
-                Ok(format!(
-                    "{},{},{},{},{},\"{}\"\n",
-                    event.timestamp.format("%Y-%m-%d %H:%M:%S%.3f"),
-                    event.level,
-                    event.target,
-                    event.module_path.as_deref().unwrap_or("unknown"),
-                    event.line.unwrap_or(0),
-                    event.message.replace('"', "\"\"")
-                ))
-            }
+            crate::config::FileOutputType::Json => serde_json::to_string(event)
+                .map(|s| format!("{}\n", s))
+                .map_err(|e| {
+                    QuantumLogError::InternalError(format!("JSON serialization failed: {}", e))
+                }),
+            crate::config::FileOutputType::Text => Ok(format!(
+                "[{}] {} [{}:{}] {}: {}\n",
+                event.timestamp.format("%Y-%m-%d %H:%M:%S%.3f"),
+                event.level,
+                event.module_path.as_deref().unwrap_or("unknown"),
+                event.line.unwrap_or(0),
+                event.target,
+                event.message
+            )),
+            crate::config::FileOutputType::Csv => Ok(format!(
+                "{},{},{},{},{},\"{}\"\n",
+                event.timestamp.format("%Y-%m-%d %H:%M:%S%.3f"),
+                event.level,
+                event.target,
+                event.module_path.as_deref().unwrap_or("unknown"),
+                event.line.unwrap_or(0),
+                event.message.replace('"', "\"\"")
+            )),
         }
     }
 
@@ -378,7 +416,7 @@ impl RollingFileSinkProcessor {
         if let Some(cleaner) = &self.cleaner {
             let mut last_cleanup = self.last_cleanup.lock().await;
             let now = Instant::now();
-            
+
             // 每小时执行一次清理
             if now.duration_since(*last_cleanup) > Duration::from_secs(3600) {
                 match cleaner.cleanup().await {
@@ -422,9 +460,8 @@ impl RollingFileSinkProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{FileSeparationStrategy, FileOutputType};
+    use crate::config::{FileOutputType, FileSeparationStrategy};
     use tempfile::TempDir;
-    use tracing::Level;
 
     fn create_test_event() -> QuantumLogEvent {
         use crate::core::event::ContextInfo;
@@ -451,7 +488,7 @@ mod tests {
     #[tokio::test]
     async fn test_rolling_file_sink_creation() {
         let temp_dir = TempDir::new().unwrap();
-        
+
         let config = RollingFileConfig {
             enabled: true,
             level: Some("INFO".to_string()),
@@ -465,7 +502,7 @@ mod tests {
             writer_cache_ttl_seconds: 300,
             writer_cache_capacity: 100,
         };
-        
+
         let sink = RollingFileSink::new(config);
         assert!(!sink.is_running());
     }
@@ -473,7 +510,7 @@ mod tests {
     #[tokio::test]
     async fn test_rolling_file_sink_start_stop() {
         let temp_dir = TempDir::new().unwrap();
-        
+
         let config = RollingFileConfig {
             enabled: true,
             level: Some("INFO".to_string()),
@@ -487,13 +524,13 @@ mod tests {
             writer_cache_ttl_seconds: 300,
             writer_cache_capacity: 100,
         };
-        
+
         let mut sink = RollingFileSink::new(config);
-        
+
         // 启动
         assert!(sink.start().await.is_ok());
         assert!(sink.is_running());
-        
+
         // 停止
         assert!(sink.shutdown().await.is_ok());
         assert!(!sink.is_running());
@@ -502,7 +539,7 @@ mod tests {
     #[tokio::test]
     async fn test_rolling_file_sink_send_event() {
         let temp_dir = TempDir::new().unwrap();
-        
+
         let config = RollingFileConfig {
             enabled: true,
             level: Some("INFO".to_string()),
@@ -516,18 +553,18 @@ mod tests {
             writer_cache_ttl_seconds: 300,
             writer_cache_capacity: 100,
         };
-        
+
         let mut sink = RollingFileSink::new(config);
         assert!(sink.start().await.is_ok());
-        
+
         let event = create_test_event();
         assert!(sink.send_event(event).await.is_ok());
-        
+
         // 给一些时间让事件被处理
         tokio::time::sleep(Duration::from_millis(100)).await;
-        
+
         assert!(sink.shutdown().await.is_ok());
-        
+
         // 验证文件是否被创建
         let log_file = temp_dir.path().join("app.log");
         assert!(log_file.exists());
@@ -536,7 +573,7 @@ mod tests {
     #[tokio::test]
     async fn test_level_separation() {
         let temp_dir = TempDir::new().unwrap();
-        
+
         let config = RollingFileConfig {
             enabled: true,
             level: Some("DEBUG".to_string()),
@@ -550,28 +587,28 @@ mod tests {
             writer_cache_ttl_seconds: 300,
             writer_cache_capacity: 100,
         };
-        
+
         let mut sink = RollingFileSink::new(config);
         assert!(sink.start().await.is_ok());
-        
+
         // 发送不同级别的事件
         let mut info_event = create_test_event();
         info_event.level = "INFO".to_string();
         assert!(sink.send_event(info_event).await.is_ok());
-        
+
         let mut error_event = create_test_event();
         error_event.level = "ERROR".to_string();
         assert!(sink.send_event(error_event).await.is_ok());
-        
+
         // 给一些时间让事件被处理
         tokio::time::sleep(Duration::from_millis(100)).await;
-        
+
         assert!(sink.shutdown().await.is_ok());
-        
+
         // 验证不同级别的文件是否被创建
         let info_file = temp_dir.path().join("app_INFO.log");
         let error_file = temp_dir.path().join("app_ERROR.log");
-        
+
         assert!(info_file.exists());
         assert!(error_file.exists());
     }

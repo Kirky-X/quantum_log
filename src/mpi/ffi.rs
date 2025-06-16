@@ -83,11 +83,11 @@ fn load_mpi_library() -> Result<()> {
 
         // 尝试加载不同的 MPI 库
         let lib_names = [
-            "libmpi.so",      // Linux - OpenMPI/MPICH
-            "libmpi.so.12",   // Linux - OpenMPI specific version
-            "libmpi.so.40",   // Linux - MPICH specific version
-            "mpi.dll",        // Windows - Microsoft MPI
-            "libmpi.dylib",   // macOS
+            "libmpi.so",    // Linux - OpenMPI/MPICH
+            "libmpi.so.12", // Linux - OpenMPI specific version
+            "libmpi.so.40", // Linux - MPICH specific version
+            "mpi.dll",      // Windows - Microsoft MPI
+            "libmpi.dylib", // macOS
         ];
 
         let mut last_error = None;
@@ -116,9 +116,7 @@ fn load_mpi_library() -> Result<()> {
             }
         }
 
-        Err(last_error.unwrap_or_else(|| {
-            QuantumLogError::mpi("无法加载任何 MPI 库")
-        }))
+        Err(last_error.unwrap_or_else(|| QuantumLogError::mpi("无法加载任何 MPI 库")))
     }
 }
 
@@ -276,7 +274,7 @@ mod tests {
         // 字符串版本应该与数值版本一致
         let rank = get_mpi_rank();
         let rank_str = get_mpi_rank_string();
-        
+
         match rank {
             Some(r) => assert_eq!(rank_str, r.to_string()),
             None => assert_eq!(rank_str, "N/A"),

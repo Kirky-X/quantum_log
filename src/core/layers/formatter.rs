@@ -33,23 +33,19 @@ impl FormatterLayer {
     }
 
     /// 将 tracing 事件转换为 QuantumLogEvent
-    async fn convert_event(
-        &self,
-        event: &Event<'_>,
-        context_info: ContextInfo,
-    ) -> QuantumLogEvent {
+    async fn convert_event(&self, event: &Event<'_>, context_info: ContextInfo) -> QuantumLogEvent {
         let metadata = event.metadata();
-        
+
         // 提取事件字段
         let mut fields = HashMap::new();
         let mut message = String::new();
-        
+
         // 创建一个访问器来提取字段
         struct FieldVisitor<'a> {
             fields: &'a mut HashMap<String, serde_json::Value>,
             message: &'a mut String,
         }
-        
+
         impl<'a> tracing::field::Visit for FieldVisitor<'a> {
             fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
                 let value_str = format!("{:?}", value);
@@ -62,7 +58,7 @@ impl FormatterLayer {
                     );
                 }
             }
-            
+
             fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
                 if field.name() == "message" {
                     *self.message = value.to_string();
@@ -73,48 +69,40 @@ impl FormatterLayer {
                     );
                 }
             }
-            
+
             fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
                 self.fields.insert(
                     field.name().to_string(),
                     serde_json::Value::Number(serde_json::Number::from(value)),
                 );
             }
-            
+
             fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
                 self.fields.insert(
                     field.name().to_string(),
                     serde_json::Value::Number(serde_json::Number::from(value)),
                 );
             }
-            
+
             fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
-                self.fields.insert(
-                    field.name().to_string(),
-                    serde_json::Value::Bool(value),
-                );
+                self.fields
+                    .insert(field.name().to_string(), serde_json::Value::Bool(value));
             }
         }
-        
+
         let mut visitor = FieldVisitor {
             fields: &mut fields,
             message: &mut message,
         };
-        
+
         event.record(&mut visitor);
-        
+
         // 如果没有明确的消息字段，使用目标作为消息
         if message.is_empty() {
             message = format!("Event from {}", metadata.target());
         }
-        
-        QuantumLogEvent::new(
-            *metadata.level(),
-            message,
-            metadata,
-            fields,
-            context_info,
-        )
+
+        QuantumLogEvent::new(*metadata.level(), message, metadata, fields, context_info)
     }
 
     /// 格式化事件为指定格式
@@ -130,45 +118,40 @@ impl FormatterLayer {
     fn format_as_text(&self, event: &QuantumLogEvent) -> String {
         let timestamp_format = &self.config.timestamp_format;
         let timestamp = event.timestamp.format(timestamp_format).to_string();
-        
-        let mut result = format!(
-            "[{}] {} {}",
-            timestamp,
-            event.level,
-            event.message
-        );
-        
+
+        let mut result = format!("[{}] {} {}", timestamp, event.level, event.message);
+
         // 添加上下文信息
         // Note: include_context field removed from LogFormatConfig
-        if true { // Always include context for now
+        if true {
+            // Always include context for now
             result.push_str(&format!(
                 " [pid:{} tid:{}",
-                event.context.pid,
-                event.context.tid
+                event.context.pid, event.context.tid
             ));
-            
+
             if let Some(ref username) = event.context.username {
                 result.push_str(&format!(" user:{}", username));
             }
-            
+
             if let Some(ref hostname) = event.context.hostname {
                 result.push_str(&format!(" host:{}", hostname));
             }
-            
+
             if let Some(mpi_rank) = event.context.mpi_rank {
                 result.push_str(&format!(" mpi:{}", mpi_rank));
             }
-            
+
             result.push(']');
         }
-        
+
         // 添加位置信息（基于模板配置）
         if self.config.template.contains("{file}") || self.config.template.contains("{line}") {
             if let (Some(ref file), Some(line)) = (&event.file, event.line) {
                 result.push_str(&format!(" at {}:{}", file, line));
             }
         }
-        
+
         // 添加自定义字段
         if !event.fields.is_empty() {
             result.push_str(" {");
@@ -177,13 +160,15 @@ impl FormatterLayer {
             }
             result.push_str(" }");
         }
-        
+
         result
     }
 
     /// 格式化为 JSON 格式
     fn format_as_json(&self, event: &QuantumLogEvent) -> String {
-        event.to_json().unwrap_or_else(|_| "{\"error\":\"serialization_failed\"}".to_string())
+        event
+            .to_json()
+            .unwrap_or_else(|_| "{\"error\":\"serialization_failed\"}".to_string())
     }
 
     /// 格式化为 CSV 格式
@@ -207,11 +192,7 @@ impl<S> Layer<S> for FormatterLayer
 where
     S: tracing::Subscriber + for<'lookup> tracing_subscriber::registry::LookupSpan<'lookup>,
 {
-    fn on_event(
-        &self,
-        event: &Event<'_>,
-        _ctx: Context<'_, S>,
-    ) {
+    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
         // 在实际实现中，格式化层通常不直接处理事件
         // 而是被其他层（如 DispatchLayer）调用来格式化事件
         // 这里我们保持接口的完整性
@@ -222,14 +203,14 @@ where
 // 为了实际使用，我们提供一个辅助方法
 impl FormatterLayer {
     /// 异步格式化事件
-    /// 
+    ///
     /// 这个方法会被其他层调用来格式化事件
     pub async fn format_event_async(&self, event: &Event<'_>) -> String {
         let context_info = self.context_injector.create_context_for_event().await;
         let quantum_event = self.convert_event(event, context_info).await;
         self.format_event(&quantum_event)
     }
-    
+
     /// 将事件转换为 QuantumLogEvent
     pub async fn to_quantum_event(&self, event: &Event<'_>) -> QuantumLogEvent {
         let context_info = self.context_injector.create_context_for_event().await;
@@ -266,9 +247,10 @@ mod tests {
             tracing::field::FieldSet::new(&[], tracing::callsite::Identifier(&CALLSITE)),
             tracing::metadata::Kind::EVENT,
         );
-        static CALLSITE: tracing::callsite::DefaultCallsite = tracing::callsite::DefaultCallsite::new(&METADATA);
+        static CALLSITE: tracing::callsite::DefaultCallsite =
+            tracing::callsite::DefaultCallsite::new(&METADATA);
         let fields = tracing::field::FieldSet::new(&[], tracing::callsite::Identifier(&CALLSITE));
-        
+
         let metadata = tracing::Metadata::new(
             "test_event",
             "test_target",
@@ -304,9 +286,9 @@ mod tests {
         let context_injector = Arc::new(ContextInjectorLayer::new());
         let formatter = FormatterLayer::new(config, context_injector);
         let event = create_test_event();
-        
+
         let formatted = formatter.format_event(&event);
-        
+
         assert!(formatted.contains("INFO"));
         assert!(formatted.contains("Test message"));
         assert!(formatted.contains("pid:1234"));
@@ -323,9 +305,9 @@ mod tests {
         let context_injector = Arc::new(ContextInjectorLayer::new());
         let formatter = FormatterLayer::new(config, context_injector);
         let event = create_test_event();
-        
+
         let formatted = formatter.format_event(&event);
-        
+
         assert!(formatted.starts_with('{'));
         assert!(formatted.ends_with('}'));
         assert!(formatted.contains("\"level\":\"INFO\""));
@@ -339,9 +321,9 @@ mod tests {
         let context_injector = Arc::new(ContextInjectorLayer::new());
         let formatter = FormatterLayer::new(config, context_injector);
         let event = create_test_event();
-        
+
         let formatted = formatter.format_event(&event);
-        
+
         let fields: Vec<&str> = formatted.split(',').collect();
         assert!(fields.len() >= 10); // 至少应该有基本字段
         assert!(formatted.contains("INFO"));
