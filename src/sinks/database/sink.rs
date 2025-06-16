@@ -41,8 +41,6 @@ pub enum DatabasePool {
     Mysql(MysqlPool),
     #[cfg(feature = "postgres")]
     Postgres(PostgresPool),
-    #[cfg(not(any(feature = "sqlite", feature = "mysql", feature = "postgres")))]
-    None,
 }
 
 /// 数据库 Sink 结构体
@@ -139,12 +137,40 @@ impl DatabaseSink {
                     .map_err(|e| QuantumLogError::DatabaseError(format!("PostgreSQL 连接池创建失败: {}", e)))?;
                 Ok(DatabasePool::Postgres(pool))
             },
-            #[cfg(not(any(feature = "sqlite", feature = "mysql", feature = "postgres")))]
-            _ => Err(QuantumLogError::DatabaseError("未启用任何数据库特性".to_string())),
+            #[cfg(not(feature = "sqlite"))]
+            DatabaseType::Sqlite => Err(QuantumLogError::DatabaseError("SQLite support not enabled".to_string())),
+            #[cfg(not(feature = "mysql"))]
+            DatabaseType::Mysql => Err(QuantumLogError::DatabaseError("MySQL support not enabled".to_string())),
+            #[cfg(not(feature = "postgres"))]
+            DatabaseType::Postgresql => Err(QuantumLogError::DatabaseError("PostgreSQL support not enabled".to_string())),
         }
     }
     
-    /// 创建数据库表（如果不存在）
+    /// 发送事件到数据库
+    #[cfg(feature = "database")]
+    pub async fn send_event(&self, event: QuantumLogEvent, _strategy: &crate::config::BackpressureStrategy) -> Result<()> {
+        // 将事件转换为数据库条目
+        let entry = self.convert_event_to_entry(&event).await?;
+        
+        // 直接插入单个条目
+        let pool = self.pool.clone();
+        let entries = vec![entry];
+        
+        tokio::task::spawn_blocking(move || {
+            Self::insert_batch_blocking(pool, entries)
+        }).await
+        .map_err(|e| QuantumLogError::DatabaseError(format!("数据库插入任务执行失败: {}", e)))?
+    }
+
+    /// 关闭数据库 Sink
+    #[cfg(feature = "database")]
+    pub async fn shutdown(self) -> Result<()> {
+        // 数据库 Sink 使用 spawn_task 模式，关闭由任务内部处理
+        // 这里只需要返回成功即可
+        Ok(())
+    }
+
+    /// 创建表（如果不存在）
     #[cfg(feature = "database")]
     async fn create_table_if_not_exists(&self) -> Result<()> {
         use crate::sinks::database::schema::create_table_sql;
@@ -156,8 +182,12 @@ impl DatabaseSink {
             DatabaseType::Mysql => create_table_sql::MYSQL_CREATE_TABLE,
             #[cfg(feature = "postgres")]
             DatabaseType::Postgresql => create_table_sql::POSTGRES_CREATE_TABLE,
-            #[cfg(not(any(feature = "sqlite", feature = "mysql", feature = "postgres")))]
-            _ => return Err(QuantumLogError::ConfigError("No database support enabled".to_string())),
+            #[cfg(not(feature = "sqlite"))]
+            DatabaseType::Sqlite => return Err(QuantumLogError::ConfigError("SQLite support not enabled".to_string())),
+            #[cfg(not(feature = "mysql"))]
+            DatabaseType::Mysql => return Err(QuantumLogError::ConfigError("MySQL support not enabled".to_string())),
+            #[cfg(not(feature = "postgres"))]
+            DatabaseType::Postgresql => return Err(QuantumLogError::ConfigError("PostgreSQL support not enabled".to_string())),
         };
         
         let pool = self.pool.clone();
@@ -180,10 +210,6 @@ impl DatabaseSink {
                     let mut conn = pool.get().map_err(|e| QuantumLogError::DatabaseError(format!("获取 PostgreSQL 连接失败: {}", e)))?;
                     diesel::sql_query(sql).execute(&mut conn)
                         .map_err(|e| QuantumLogError::DatabaseError(format!("PostgreSQL 表创建失败: {}", e)))?;
-                },
-                #[cfg(not(any(feature = "sqlite", feature = "mysql", feature = "postgres")))]
-                DatabasePool::None => {
-                    return Err(QuantumLogError::ConfigError("No database support enabled".to_string()));
                 },
             }
             Ok::<(), QuantumLogError>(())
@@ -390,10 +416,6 @@ impl DatabaseSink {
                     .execute(&mut conn)
                     .map_err(|e| QuantumLogError::DatabaseError(format!("PostgreSQL 批量插入失败: {}", e)))?;
             },
-            #[cfg(not(any(feature = "sqlite", feature = "mysql", feature = "postgres")))]
-            DatabasePool::None => {
-                return Err(QuantumLogError::ConfigError("No database support enabled".to_string()));
-            },
         }
         
         Ok(())
@@ -420,10 +442,6 @@ impl DatabaseSink {
                 DatabasePool::Postgres(pool) => {
                     let _conn = pool.get()
                         .map_err(|e| QuantumLogError::DatabaseError(format!("PostgreSQL 连接测试失败: {}", e)))?;
-                },
-                #[cfg(not(any(feature = "sqlite", feature = "mysql", feature = "postgres")))]
-                DatabasePool::None => {
-                    return Err(QuantumLogError::ConfigError("No database support enabled".to_string()));
                 },
             }
             Ok::<(), QuantumLogError>(())
