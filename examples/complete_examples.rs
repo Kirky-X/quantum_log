@@ -215,12 +215,13 @@ async fn example_advanced_config() -> Result<(), Box<dyn std::error::Error>> {
         database: Some(DatabaseSinkConfig {
             enabled: false, // 在示例中禁用以避免依赖数据库
             level: Some("WARN".to_string()),
-            database_type: DatabaseType::PostgreSQL,
+            db_type: DatabaseType::Postgresql,
             connection_string: "postgresql://user:pass@localhost/logs".to_string(),
+            schema_name: None,
             table_name: "quantum_logs".to_string(),
-            batch_size: Some(200),
-            pool_size: Some(10),
-            connection_timeout_ms: Some(10000),
+            batch_size: 200,
+            connection_pool_size: 10,
+            connection_timeout_ms: 10000,
             auto_create_table: true,
         }),
         
@@ -295,10 +296,9 @@ async fn example_mpi_usage() -> Result<(), Box<dyn std::error::Error>> {
     
     use quantum_log::mpi::*;
     
-    // 初始化 MPI（如果可用）
-    if let Ok(_) = init_mpi() {
+    // 检查 MPI 是否可用
+    if is_mpi_available() {
         let rank = get_mpi_rank().unwrap_or(0);
-        let size = get_mpi_size().unwrap_or(1);
         
         let config = QuantumLogConfig {
             global_level: "INFO".to_string(),
@@ -322,7 +322,10 @@ async fn example_mpi_usage() -> Result<(), Box<dyn std::error::Error>> {
             ..Default::default()
         };
         
-        info!(rank = rank, size = size, "MPI 进程启动");
+        // 使用配置初始化日志系统
+        init_with_config(config).await?;
+        
+        info!(rank = rank, "MPI 进程启动");
         
         // 模拟 MPI 工作负载
         for i in 0..10 {
@@ -331,8 +334,6 @@ async fn example_mpi_usage() -> Result<(), Box<dyn std::error::Error>> {
         }
         
         warn!(rank = rank, "MPI 进程即将结束");
-        
-        finalize_mpi()?;
     } else {
         println!("MPI 不可用，使用标准模式");
         info!("标准模式启动");
@@ -399,7 +400,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mpi_examples = vec!["MPI 环境使用"];
     
     // 合并所有示例
-    let all_examples = examples;
+    let mut all_examples = examples;
     #[cfg(feature = "mpi_support")]
     all_examples.extend(mpi_examples);
     
