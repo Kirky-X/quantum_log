@@ -74,13 +74,15 @@ impl NetworkSink {
     /// 启动 sink
     pub async fn start(&mut self) -> Result<()> {
         if self.sender.is_some() {
-            return Err(QuantumLogError::ConfigError("Sink already started".to_string()));
+            return Err(QuantumLogError::ConfigError(
+                "Sink already started".to_string(),
+            ));
         }
 
         let buffer_size = 1000; // 固定缓冲区大小
 
         let (sender, receiver) = mpsc::channel(buffer_size);
-        
+
         let processor = NetworkSinkProcessor::new(self.config.clone(), receiver).await?;
         let handle = tokio::spawn(async move {
             if let Err(e) = processor.run().await {
@@ -98,12 +100,15 @@ impl NetworkSink {
     pub async fn send_event(&self, event: QuantumLogEvent) -> Result<()> {
         if let Some(sender) = &self.sender {
             let message = SinkMessage::Event(Box::new(event));
-            
+
             // 使用阻塞策略发送事件
-            sender.send(message).await
-                .map_err(|_| QuantumLogError::SinkError("Failed to send event to NetworkSink".to_string()))?;
+            sender.send(message).await.map_err(|_| {
+                QuantumLogError::SinkError("Failed to send event to NetworkSink".to_string())
+            })?;
         } else {
-            return Err(QuantumLogError::SinkError("NetworkSink not started".to_string()));
+            return Err(QuantumLogError::SinkError(
+                "NetworkSink not started".to_string(),
+            ));
         }
         Ok(())
     }
@@ -112,26 +117,32 @@ impl NetworkSink {
     pub async fn shutdown(mut self) -> Result<()> {
         if let Some(sender) = self.sender.take() {
             let (tx, rx) = oneshot::channel();
-            
+
             // 发送关闭信号
             if sender.send(SinkMessage::Shutdown(tx)).await.is_err() {
-                return Err(QuantumLogError::SinkError("Failed to send shutdown signal".to_string()));
+                return Err(QuantumLogError::SinkError(
+                    "Failed to send shutdown signal".to_string(),
+                ));
             }
-            
+
             // 等待关闭完成
             match rx.await {
                 Ok(result) => result?,
-                Err(_) => return Err(QuantumLogError::SinkError("Shutdown signal lost".to_string())),
+                Err(_) => {
+                    return Err(QuantumLogError::SinkError(
+                        "Shutdown signal lost".to_string(),
+                    ))
+                }
             }
         }
-        
+
         // 等待处理器完成
         if let Some(handle) = self.processor_handle.take() {
             if let Err(e) = handle.await {
                 tracing::error!("Error waiting for NetworkSink processor: {}", e);
             }
         }
-        
+
         Ok(())
     }
 
@@ -156,49 +167,54 @@ impl NetworkSinkProcessor {
             reconnect_count: 0,
             level_filter: None,
         };
-        
+
         // 尝试建立初始连接
         if let Err(e) = processor.connect().await {
             tracing::warn!("Failed to establish initial network connection: {}", e);
         }
-        
+
         Ok(processor)
     }
 
     /// 建立网络连接
     async fn connect(&mut self) -> Result<()> {
         let address = format!("{}:{}", self.config.host, self.config.port);
-        let socket_addr: SocketAddr = address.parse()
-            .map_err(|e| QuantumLogError::NetworkError(format!("Invalid address {}: {}", address, e)))?;
-        
+        let socket_addr: SocketAddr = address.parse().map_err(|e| {
+            QuantumLogError::NetworkError(format!("Invalid address {}: {}", address, e))
+        })?;
+
         match self.config.protocol {
             NetworkProtocol::Tcp => {
                 let stream = timeout(
                     Duration::from_millis(self.config.timeout_ms.unwrap_or(30000)),
-                    TcpStream::connect(socket_addr)
-                ).await
+                    TcpStream::connect(socket_addr),
+                )
+                .await
                 .map_err(|_| QuantumLogError::NetworkError("Connection timeout".to_string()))?
-                .map_err(|e| QuantumLogError::NetworkError(format!("TCP connection failed: {}", e)))?;
-                
+                .map_err(|e| {
+                    QuantumLogError::NetworkError(format!("TCP connection failed: {}", e))
+                })?;
+
                 let writer = BufWriter::new(stream);
                 self.connection = Some(NetworkConnection::Tcp(Arc::new(Mutex::new(writer))));
-                
+
                 tracing::info!("TCP connection established to {}", address);
-            },
+            }
             NetworkProtocol::Udp => {
-                let socket = UdpSocket::bind("0.0.0.0:0").await
-                    .map_err(|e| QuantumLogError::NetworkError(format!("UDP socket bind failed: {}", e)))?;
-                
+                let socket = UdpSocket::bind("0.0.0.0:0").await.map_err(|e| {
+                    QuantumLogError::NetworkError(format!("UDP socket bind failed: {}", e))
+                })?;
+
                 self.connection = Some(NetworkConnection::Udp(Arc::new(socket), socket_addr));
-                
+
                 tracing::info!("UDP socket created for {}", address);
-            },
+            }
             NetworkProtocol::Http => {
                 // HTTP协议支持待实现
                 todo!("HTTP protocol support not yet implemented")
-            },
+            }
         }
-        
+
         self.reconnect_count = 0;
         Ok(())
     }
@@ -208,15 +224,15 @@ impl NetworkSinkProcessor {
         // 检查最大重试次数（固定为5次）
         if self.reconnect_count >= 5 {
             return Err(QuantumLogError::NetworkError(
-                "Max reconnection attempts (5) exceeded".to_string()
+                "Max reconnection attempts (5) exceeded".to_string(),
             ));
         }
-        
+
         self.reconnect_count += 1;
-        
+
         // 等待重连间隔
         tokio::time::sleep(Duration::from_secs(5)).await;
-        
+
         tracing::info!("Attempting reconnection #{}", self.reconnect_count);
         self.connect().await
     }
@@ -228,7 +244,7 @@ impl NetworkSinkProcessor {
                 SinkMessage::Event(event) => {
                     if let Err(e) = self.handle_event(*event).await {
                         tracing::error!("Error handling event in NetworkSink: {}", e);
-                        
+
                         // 如果是网络错误，尝试重连
                         if matches!(e, QuantumLogError::NetworkError(_)) {
                             if let Err(reconnect_err) = self.reconnect().await {
@@ -236,12 +252,12 @@ impl NetworkSinkProcessor {
                             }
                         }
                     }
-                },
+                }
                 SinkMessage::Shutdown(response) => {
                     let result = self.shutdown().await;
                     let _ = response.send(result);
                     break;
-                },
+                }
             }
         }
         Ok(())
@@ -251,44 +267,51 @@ impl NetworkSinkProcessor {
     async fn handle_event(&mut self, event: QuantumLogEvent) -> Result<()> {
         // 检查级别过滤
         if let Some(ref filter_level) = self.level_filter {
-            let event_level = event.level.parse::<Level>()
-                .map_err(|_| QuantumLogError::ConfigError(format!("Invalid log level: {}", event.level)))?;
-            
+            let event_level = event.level.parse::<Level>().map_err(|_| {
+                QuantumLogError::ConfigError(format!("Invalid log level: {}", event.level))
+            })?;
+
             if event_level < *filter_level {
                 return Ok(());
             }
         }
-        
+
         // 检查连接状态
         if self.connection.is_none() {
             self.connect().await?;
         }
-        
+
         // 格式化事件
         let formatted = self.format_event(&event)?;
         let data = formatted.as_bytes();
-        
+
         // 发送数据
         match &self.connection {
             Some(NetworkConnection::Tcp(writer_arc)) => {
                 let mut writer = writer_arc.lock().await;
-                writer.write_all(data).await
-                    .map_err(|e| QuantumLogError::NetworkError(format!("TCP write failed: {}", e)))?;
-                writer.write_all(b"\n").await
-                    .map_err(|e| QuantumLogError::NetworkError(format!("TCP write failed: {}", e)))?;
-                
-                writer.flush().await
-                    .map_err(|e| QuantumLogError::NetworkError(format!("TCP flush failed: {}", e)))?;
-            },
+                writer.write_all(data).await.map_err(|e| {
+                    QuantumLogError::NetworkError(format!("TCP write failed: {}", e))
+                })?;
+                writer.write_all(b"\n").await.map_err(|e| {
+                    QuantumLogError::NetworkError(format!("TCP write failed: {}", e))
+                })?;
+
+                writer.flush().await.map_err(|e| {
+                    QuantumLogError::NetworkError(format!("TCP flush failed: {}", e))
+                })?;
+            }
             Some(NetworkConnection::Udp(socket, addr)) => {
-                socket.send_to(data, addr).await
-                    .map_err(|e| QuantumLogError::NetworkError(format!("UDP send failed: {}", e)))?;
-            },
+                socket.send_to(data, addr).await.map_err(|e| {
+                    QuantumLogError::NetworkError(format!("UDP send failed: {}", e))
+                })?;
+            }
             None => {
-                return Err(QuantumLogError::NetworkError("No active connection".to_string()));
-            },
+                return Err(QuantumLogError::NetworkError(
+                    "No active connection".to_string(),
+                ));
+            }
         }
-        
+
         Ok(())
     }
 
@@ -296,14 +319,13 @@ impl NetworkSinkProcessor {
     fn format_event(&self, event: &QuantumLogEvent) -> Result<String> {
         match self.config.format {
             crate::config::OutputFormat::Text => Ok(event.to_formatted_string("full")),
-            crate::config::OutputFormat::Json => {
-                event.to_json()
-                    .map_err(|e| QuantumLogError::SerializationError { source: e })
-            },
+            crate::config::OutputFormat::Json => event
+                .to_json()
+                .map_err(|e| QuantumLogError::SerializationError { source: e }),
             crate::config::OutputFormat::Csv => {
                 let csv_row = event.to_csv_row();
                 Ok(csv_row.join(","))
-            },
+            }
         }
     }
 
@@ -316,10 +338,10 @@ impl NetworkSinkProcessor {
                 tracing::error!("Error flushing TCP connection: {}", e);
             }
         }
-        
+
         self.connection = None;
         tracing::info!("NetworkSink shutdown completed");
-        
+
         Ok(())
     }
 }
@@ -334,16 +356,17 @@ mod tests {
     use tracing::Level;
 
     fn create_test_event(level: Level, message: &str) -> QuantumLogEvent {
-        static CALLSITE: tracing::callsite::DefaultCallsite = tracing::callsite::DefaultCallsite::new(&tracing::Metadata::new(
-            "test",
-            "quantum_log::network::test",
-            Level::INFO,
-            Some(file!()),
-            Some(line!()),
-            Some(module_path!()),
-            tracing::field::FieldSet::new(&[], tracing::callsite::Identifier(&CALLSITE)),
-            tracing::metadata::Kind::EVENT,
-        ));
+        static CALLSITE: tracing::callsite::DefaultCallsite =
+            tracing::callsite::DefaultCallsite::new(&tracing::Metadata::new(
+                "test",
+                "quantum_log::network::test",
+                Level::INFO,
+                Some(file!()),
+                Some(line!()),
+                Some(module_path!()),
+                tracing::field::FieldSet::new(&[], tracing::callsite::Identifier(&CALLSITE)),
+                tracing::metadata::Kind::EVENT,
+            ));
         let metadata = tracing::Metadata::new(
             "test",
             "test_target",
@@ -354,7 +377,7 @@ mod tests {
             tracing::field::FieldSet::new(&[], tracing::callsite::Identifier(&CALLSITE)),
             tracing::metadata::Kind::EVENT,
         );
-        
+
         QuantumLogEvent::new(
             level,
             message.to_string(),
@@ -376,7 +399,7 @@ mod tests {
             buffer_size: 8192,
             timeout_ms: Some(30000),
         };
-        
+
         let sink = NetworkSink::new(config);
         assert!(!sink.is_running());
     }
@@ -386,7 +409,7 @@ mod tests {
         // 启动测试 TCP 服务器
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        
+
         // 在后台接受连接
         let server_handle = tokio::spawn(async move {
             if let Ok((mut stream, _)) = listener.accept().await {
@@ -395,7 +418,7 @@ mod tests {
                 let _ = stream.try_read(&mut buffer);
             }
         });
-        
+
         let config = NetworkConfig {
             enabled: true,
             level: None,
@@ -406,26 +429,26 @@ mod tests {
             buffer_size: 8192,
             timeout_ms: Some(5000),
         };
-        
+
         let mut sink = NetworkSink::new(config);
-        
+
         // 启动 sink
         let result = sink.start().await;
         assert!(result.is_ok());
         assert!(sink.is_running());
-        
+
         // 发送事件
         let event = create_test_event(Level::INFO, "Test TCP message");
         let result = sink.send_event(event).await;
         assert!(result.is_ok());
-        
+
         // 等待一下
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        
+
         // 关闭
         let result = sink.shutdown().await;
         assert!(result.is_ok());
-        
+
         // 等待服务器完成
         let _ = server_handle.await;
     }
@@ -435,13 +458,13 @@ mod tests {
         // 启动测试 UDP 服务器
         let server_socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let addr = server_socket.local_addr().unwrap();
-        
+
         // 在后台接收数据
         let server_handle = tokio::spawn(async move {
             let mut buffer = [0; 1024];
             let _ = server_socket.recv(&mut buffer).await;
         });
-        
+
         let config = NetworkConfig {
             enabled: true,
             level: None,
@@ -452,26 +475,26 @@ mod tests {
             buffer_size: 8192,
             timeout_ms: Some(5000),
         };
-        
+
         let mut sink = NetworkSink::new(config);
-        
+
         // 启动 sink
         let result = sink.start().await;
         assert!(result.is_ok());
         assert!(sink.is_running());
-        
+
         // 发送事件
         let event = create_test_event(Level::INFO, "Test UDP message");
         let result = sink.send_event(event).await;
         assert!(result.is_ok());
-        
+
         // 等待一下
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        
+
         // 关闭
         let result = sink.shutdown().await;
         assert!(result.is_ok());
-        
+
         // 等待服务器完成
         let _ = server_handle.await;
     }
@@ -488,15 +511,15 @@ mod tests {
             buffer_size: 8192,
             timeout_ms: Some(1000),
         };
-        
+
         let mut sink = NetworkSink::new(config);
         sink.start().await.unwrap();
-        
+
         // 发送事件（应该被丢弃，因为连接失败）
         let event = create_test_event(Level::INFO, "Test message");
         let result = sink.send_event(event).await;
         assert!(result.is_ok()); // send_event 本身不会失败，但事件可能被丢弃
-        
+
         sink.shutdown().await.unwrap();
     }
 
@@ -512,9 +535,9 @@ mod tests {
             buffer_size: 8192,
             timeout_ms: Some(30000),
         };
-        
+
         let sink = NetworkSink::new(config);
-        
+
         // 检查配置
         assert_eq!(sink.config().format, OutputFormat::Json);
         assert_eq!(sink.config().protocol, NetworkProtocol::Tcp);

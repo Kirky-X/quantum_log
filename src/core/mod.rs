@@ -12,8 +12,6 @@ pub use subscriber::{QuantumLogSubscriber, QuantumLogSubscriberBuilder};
 
 // 重新导出层类型
 pub use layers::{
-    context_injector::ContextInjectorLayer,
-    dispatcher::DispatcherLayer,
-    formatter::FormatterLayer,
+    context_injector::ContextInjectorLayer, dispatcher::DispatcherLayer, formatter::FormatterLayer,
     pre_init_buffer::PreInitBufferLayer,
 };

@@ -2,12 +2,12 @@
 //!
 //! 此模块提供了 QuantumLog 的优雅停机机制，确保所有日志都能被正确处理和刷新。
 
-use crate::error::{Result, QuantumLogError};
+use crate::error::{QuantumLogError, Result};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{broadcast, RwLock, Notify};
+use tokio::sync::{broadcast, Notify, RwLock};
 use tokio::time::timeout;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 /// 停机句柄
 ///
@@ -79,7 +79,7 @@ impl ShutdownHandle {
     /// 创建新的停机句柄
     pub fn new(timeout_duration: Duration) -> Self {
         let (shutdown_tx, _) = broadcast::channel(16);
-        
+
         Self {
             shutdown_tx,
             state: Arc::new(RwLock::new(ShutdownState::Running)),
@@ -87,7 +87,7 @@ impl ShutdownHandle {
             timeout_duration,
         }
     }
-    
+
     /// 创建停机监听器
     pub fn create_listener(&self, component_name: impl Into<String>) -> ShutdownListener {
         ShutdownListener {
@@ -95,22 +95,22 @@ impl ShutdownHandle {
             component_name: component_name.into(),
         }
     }
-    
+
     /// 发起优雅停机
     pub async fn shutdown_graceful(&self) -> Result<ShutdownStats> {
         self.shutdown_with_signal(ShutdownSignal::Graceful).await
     }
-    
+
     /// 发起强制停机
     pub async fn shutdown_force(&self) -> Result<ShutdownStats> {
         self.shutdown_with_signal(ShutdownSignal::Force).await
     }
-    
+
     /// 发起立即停机
     pub async fn shutdown_immediate(&self) -> Result<ShutdownStats> {
         self.shutdown_with_signal(ShutdownSignal::Immediate).await
     }
-    
+
     /// 使用指定信号停机
     async fn shutdown_with_signal(&self, signal: ShutdownSignal) -> Result<ShutdownStats> {
         // 检查当前状态
@@ -135,20 +135,23 @@ impl ShutdownHandle {
                 }
             }
         }
-        
+
         let stats = Arc::new(RwLock::new(ShutdownStats {
             start_time: Some(std::time::Instant::now()),
             ..Default::default()
         }));
-        
+
         // 发送停机信号
         if let Err(e) = self.shutdown_tx.send(signal.clone()) {
             error!("Failed to send shutdown signal: {}", e);
             let mut state = self.state.write().await;
             *state = ShutdownState::Failed(format!("Failed to send signal: {}", e));
-            return Err(QuantumLogError::ShutdownFailed(format!("Signal send failed: {}", e)));
+            return Err(QuantumLogError::ShutdownFailed(format!(
+                "Signal send failed: {}",
+                e
+            )));
         }
-        
+
         // 等待停机完成或超时
         let result = match signal {
             ShutdownSignal::Immediate => {
@@ -157,18 +160,19 @@ impl ShutdownHandle {
             }
             _ => {
                 // 等待停机完成
-                timeout(self.timeout_duration, self.completion_notify.notified()).await
+                timeout(self.timeout_duration, self.completion_notify.notified())
+                    .await
                     .map_err(|_| QuantumLogError::ShutdownTimeout)
             }
         };
-        
+
         // 更新状态和统计信息
         let final_stats = {
             let mut stats_guard = stats.write().await;
             stats_guard.end_time = Some(std::time::Instant::now());
             stats_guard.clone()
         };
-        
+
         match result {
             Ok(_) => {
                 let mut state = self.state.write().await;
@@ -184,27 +188,30 @@ impl ShutdownHandle {
             }
         }
     }
-    
+
     /// 通知停机完成
     pub fn notify_completion(&self) {
         self.completion_notify.notify_waiters();
     }
-    
+
     /// 获取当前停机状态
     pub async fn get_state(&self) -> ShutdownState {
         self.state.read().await.clone()
     }
-    
+
     /// 检查是否正在停机
     pub async fn is_shutting_down(&self) -> bool {
-        matches!(*self.state.read().await, ShutdownState::Shutting | ShutdownState::Shutdown)
+        matches!(
+            *self.state.read().await,
+            ShutdownState::Shutting | ShutdownState::Shutdown
+        )
     }
-    
+
     /// 检查是否已停机
     pub async fn is_shutdown(&self) -> bool {
         matches!(*self.state.read().await, ShutdownState::Shutdown)
     }
-    
+
     /// 设置超时时间
     pub fn set_timeout(&mut self, timeout: Duration) {
         self.timeout_duration = timeout;
@@ -216,41 +223,59 @@ impl ShutdownListener {
     pub async fn wait_for_shutdown(&mut self) -> Result<ShutdownSignal> {
         match self.shutdown_rx.recv().await {
             Ok(signal) => {
-                info!("Component '{}' received shutdown signal: {:?}", self.component_name, signal);
+                info!(
+                    "Component '{}' received shutdown signal: {:?}",
+                    self.component_name, signal
+                );
                 Ok(signal)
             }
             Err(broadcast::error::RecvError::Closed) => {
-                warn!("Shutdown channel closed for component '{}'", self.component_name);
+                warn!(
+                    "Shutdown channel closed for component '{}'",
+                    self.component_name
+                );
                 Err(QuantumLogError::ShutdownChannelClosed)
             }
             Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                warn!("Component '{}' lagged behind, skipped {} signals", self.component_name, skipped);
+                warn!(
+                    "Component '{}' lagged behind, skipped {} signals",
+                    self.component_name, skipped
+                );
                 // 尝试再次接收
                 Box::pin(self.wait_for_shutdown()).await
             }
         }
     }
-    
+
     /// 非阻塞检查停机信号
     pub fn try_recv_shutdown(&mut self) -> Option<ShutdownSignal> {
         match self.shutdown_rx.try_recv() {
             Ok(signal) => {
-                info!("Component '{}' received shutdown signal: {:?}", self.component_name, signal);
+                info!(
+                    "Component '{}' received shutdown signal: {:?}",
+                    self.component_name, signal
+                );
                 Some(signal)
             }
             Err(broadcast::error::TryRecvError::Empty) => None,
             Err(broadcast::error::TryRecvError::Closed) => {
-                warn!("Shutdown channel closed for component '{}'", self.component_name);
+                warn!(
+                    "Shutdown channel closed for component '{}'",
+                    self.component_name
+                );
                 Some(ShutdownSignal::Immediate)
             }
             Err(broadcast::error::TryRecvError::Lagged(skipped)) => {
-                warn!("Component '{}' lagged behind, skipped {} signals", self.component_name, skipped);
+                warn!(
+                    "Component '{}' lagged behind, skipped {} signals",
+                    self.component_name, skipped
+                );
                 // 返回强制停机信号
                 Some(ShutdownSignal::Force)
             }
         }
     }
-    
+
     /// 获取组件名称
     pub fn component_name(&self) -> &str {
         &self.component_name
@@ -295,7 +320,6 @@ pub struct ShutdownCoordinator {
     handle: ShutdownHandle,
     /// 注册的组件
     components: Arc<RwLock<Vec<String>>>,
-
 }
 
 impl ShutdownCoordinator {
@@ -306,19 +330,19 @@ impl ShutdownCoordinator {
             components: Arc::new(RwLock::new(Vec::new())),
         }
     }
-    
+
     /// 注册组件
     pub async fn register_component(&self, name: impl Into<String>) -> ShutdownListener {
         let name = name.into();
         self.components.write().await.push(name.clone());
         self.handle.create_listener(name)
     }
-    
+
     /// 获取停机句柄
     pub fn handle(&self) -> &ShutdownHandle {
         &self.handle
     }
-    
+
     /// 获取注册的组件列表
     pub async fn get_components(&self) -> Vec<String> {
         self.components.read().await.clone()
@@ -329,53 +353,53 @@ impl ShutdownCoordinator {
 mod tests {
     use super::*;
     use tokio::time::sleep;
-    
+
     #[tokio::test]
     async fn test_shutdown_handle_creation() {
         let handle = ShutdownHandle::new(Duration::from_secs(5));
         assert!(matches!(handle.get_state().await, ShutdownState::Running));
     }
-    
+
     #[tokio::test]
     async fn test_shutdown_listener() {
         let handle = ShutdownHandle::new(Duration::from_secs(5));
         let mut listener = handle.create_listener("test_component");
-        
+
         // 在后台发送停机信号
         let handle_clone = handle.clone();
         tokio::spawn(async move {
             sleep(Duration::from_millis(100)).await;
             let _ = handle_clone.shutdown_tx.send(ShutdownSignal::Graceful);
         });
-        
+
         // 等待停机信号
         let signal = listener.wait_for_shutdown().await.unwrap();
         assert_eq!(signal, ShutdownSignal::Graceful);
     }
-    
+
     #[tokio::test]
     async fn test_shutdown_coordinator() {
         let coordinator = ShutdownCoordinator::new(ShutdownTimeouts::default());
-        
+
         let _listener1 = coordinator.register_component("component1").await;
         let _listener2 = coordinator.register_component("component2").await;
-        
+
         let components = coordinator.get_components().await;
         assert_eq!(components.len(), 2);
         assert!(components.contains(&"component1".to_string()));
         assert!(components.contains(&"component2".to_string()));
     }
-    
+
     #[tokio::test]
     async fn test_shutdown_states() {
         let handle = ShutdownHandle::new(Duration::from_secs(1));
-        
+
         assert!(!handle.is_shutting_down().await);
         assert!(!handle.is_shutdown().await);
-        
+
         // 模拟停机完成
         handle.notify_completion();
-        
+
         // 注意：这个测试可能需要调整，因为状态变化是在 shutdown_graceful 中进行的
     }
 }

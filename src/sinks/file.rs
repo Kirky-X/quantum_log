@@ -5,7 +5,7 @@
 use crate::config::FileConfig;
 use crate::core::event::QuantumLogEvent;
 use crate::error::{QuantumLogError, Result};
-use crate::sinks::file_common::{FileWriter, FileCleaner};
+use crate::sinks::file_common::{FileCleaner, FileWriter};
 use crate::utils::FileTools;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -63,13 +63,15 @@ impl FileSink {
     /// 启动 sink
     pub async fn start(&mut self) -> Result<()> {
         if self.sender.is_some() {
-            return Err(QuantumLogError::ConfigError("Sink already started".to_string()));
+            return Err(QuantumLogError::ConfigError(
+                "Sink already started".to_string(),
+            ));
         }
 
         let buffer_size = 1000; // 默认缓冲区大小
 
         let (sender, receiver) = mpsc::channel(buffer_size);
-        
+
         let processor = FileSinkProcessor::new(self.config.clone(), receiver).await?;
         let handle = tokio::spawn(async move {
             if let Err(e) = processor.run().await {
@@ -87,9 +89,10 @@ impl FileSink {
     pub async fn send_event(&self, event: QuantumLogEvent) -> Result<()> {
         if let Some(sender) = &self.sender {
             let message = SinkMessage::Event(Box::new(event));
-            
-            sender.send(message).await
-                .map_err(|_| QuantumLogError::SinkError("Failed to send event to FileSink".to_string()))?;
+
+            sender.send(message).await.map_err(|_| {
+                QuantumLogError::SinkError("Failed to send event to FileSink".to_string())
+            })?;
         }
         Ok(())
     }
@@ -98,16 +101,15 @@ impl FileSink {
     pub fn try_send_event(&self, event: QuantumLogEvent) -> Result<()> {
         if let Some(sender) = &self.sender {
             let message = SinkMessage::Event(Box::new(event));
-            
-            sender.try_send(message)
-                .map_err(|e| match e {
-                    mpsc::error::TrySendError::Full(_) => {
-                        QuantumLogError::SinkError("FileSink buffer full".to_string())
-                    },
-                    mpsc::error::TrySendError::Closed(_) => {
-                        QuantumLogError::SinkError("FileSink closed".to_string())
-                    },
-                })?;
+
+            sender.try_send(message).map_err(|e| match e {
+                mpsc::error::TrySendError::Full(_) => {
+                    QuantumLogError::SinkError("FileSink buffer full".to_string())
+                }
+                mpsc::error::TrySendError::Closed(_) => {
+                    QuantumLogError::SinkError("FileSink closed".to_string())
+                }
+            })?;
         }
         Ok(())
     }
@@ -116,26 +118,32 @@ impl FileSink {
     pub async fn shutdown(mut self) -> Result<()> {
         if let Some(sender) = self.sender.take() {
             let (tx, rx) = oneshot::channel();
-            
+
             // 发送关闭信号
             if sender.send(SinkMessage::Shutdown(tx)).await.is_err() {
-                return Err(QuantumLogError::SinkError("Failed to send shutdown signal".to_string()));
+                return Err(QuantumLogError::SinkError(
+                    "Failed to send shutdown signal".to_string(),
+                ));
             }
-            
+
             // 等待关闭完成
             match rx.await {
                 Ok(result) => result?,
-                Err(_) => return Err(QuantumLogError::SinkError("Shutdown signal lost".to_string())),
+                Err(_) => {
+                    return Err(QuantumLogError::SinkError(
+                        "Shutdown signal lost".to_string(),
+                    ))
+                }
             }
         }
-        
+
         // 等待处理器完成
         if let Some(handle) = self.processor_handle.take() {
             if let Err(e) = handle.await {
                 tracing::error!("Error waiting for FileSink processor: {}", e);
             }
         }
-        
+
         Ok(())
     }
 
@@ -155,37 +163,35 @@ impl FileSinkProcessor {
     async fn new(config: FileConfig, receiver: mpsc::Receiver<SinkMessage>) -> Result<Self> {
         // 确保目录存在
         FileTools::ensure_directory_exists(&config.directory)?;
-        
+
         // 检查目录是否可写
         if !FileTools::is_directory_writable(&config.directory) {
             return Err(QuantumLogError::IoError {
                 source: std::io::Error::new(
                     std::io::ErrorKind::PermissionDenied,
-                    format!("目录不可写: {}", config.directory.display())
-                )
+                    format!("目录不可写: {}", config.directory.display()),
+                ),
             });
         }
-        
+
         let writer = FileWriter::new(config.clone()).await?;
-        
+
         let cleaner = if let Some(ref rotation) = config.rotation {
             // 如果启用了轮转，创建清理器
-            let base_path = config.directory
-                .to_string_lossy()
-                .to_string();
-            
+            let base_path = config.directory.to_string_lossy().to_string();
+
             let mut cleaner = FileCleaner::new(&base_path);
-            
+
             // 根据轮转策略设置清理参数
             if let Some(max_files) = rotation.max_files {
                 cleaner = cleaner.max_files(max_files);
             }
-            
+
             Some(cleaner)
         } else {
             None
         };
-        
+
         Ok(Self {
             config,
             receiver,
@@ -203,12 +209,12 @@ impl FileSinkProcessor {
                     if let Err(e) = self.handle_event(*event).await {
                         tracing::error!("Error handling event in FileSink: {}", e);
                     }
-                },
+                }
                 SinkMessage::Shutdown(response) => {
                     let result = self.shutdown().await;
                     let _ = response.send(result);
                     break;
-                },
+                }
             }
         }
         Ok(())
@@ -218,20 +224,21 @@ impl FileSinkProcessor {
     async fn handle_event(&mut self, event: QuantumLogEvent) -> Result<()> {
         // 检查级别过滤
         if let Some(ref filter_level) = self.level_filter {
-            let event_level = event.level.parse::<Level>()
-                .map_err(|_| QuantumLogError::ConfigError(format!("Invalid log level: {}", event.level)))?;
-            
+            let event_level = event.level.parse::<Level>().map_err(|_| {
+                QuantumLogError::ConfigError(format!("Invalid log level: {}", event.level))
+            })?;
+
             if event_level < *filter_level {
                 return Ok(());
             }
         }
-        
+
         // 格式化事件
         let formatted = self.format_event(&event)?;
-        
+
         // 写入文件
         self.writer.write(formatted.as_bytes()).await?;
-        
+
         Ok(())
     }
 
@@ -243,8 +250,11 @@ impl FileSinkProcessor {
             crate::config::FileOutputType::Text => "full",
             crate::config::FileOutputType::Csv => "csv",
         };
-        Ok(format!("{}
-", event.to_formatted_string(format_type)))
+        Ok(format!(
+            "{}
+",
+            event.to_formatted_string(format_type)
+        ))
     }
 
     /// 关闭处理器
@@ -253,7 +263,7 @@ impl FileSinkProcessor {
         if let Err(e) = self.writer.flush().await {
             tracing::error!("Error flushing file writer: {}", e);
         }
-        
+
         // 执行清理（如果启用）
         if let Some(ref cleaner) = self.cleaner {
             match cleaner.cleanup().await {
@@ -261,13 +271,13 @@ impl FileSinkProcessor {
                     if removed > 0 {
                         tracing::info!("Cleaned up {} old log files", removed);
                     }
-                },
+                }
                 Err(e) => {
                     tracing::error!("Error during log file cleanup: {}", e);
-                },
+                }
             }
         }
-        
+
         Ok(())
     }
 }
@@ -281,16 +291,17 @@ mod tests {
 
     fn create_test_event(level: Level, message: &str) -> QuantumLogEvent {
         // Create a simple metadata without circular dependency
-        static CALLSITE: tracing::callsite::DefaultCallsite = tracing::callsite::DefaultCallsite::new(&tracing::Metadata::new(
-            "test",
-            "test_target",
-            Level::INFO,
-            Some("test.rs"),
-            Some(42),
-            Some("test_module"),
-            tracing::field::FieldSet::new(&[], tracing::callsite::Identifier(&CALLSITE)),
-            tracing::metadata::Kind::EVENT,
-        ));
+        static CALLSITE: tracing::callsite::DefaultCallsite =
+            tracing::callsite::DefaultCallsite::new(&tracing::Metadata::new(
+                "test",
+                "test_target",
+                Level::INFO,
+                Some("test.rs"),
+                Some(42),
+                Some("test_module"),
+                tracing::field::FieldSet::new(&[], tracing::callsite::Identifier(&CALLSITE)),
+                tracing::metadata::Kind::EVENT,
+            ));
         let fields = tracing::field::FieldSet::new(&[], tracing::callsite::Identifier(&CALLSITE));
         let metadata = tracing::Metadata::new(
             "test",
@@ -302,7 +313,7 @@ mod tests {
             fields,
             tracing::metadata::Kind::EVENT,
         );
-        
+
         QuantumLogEvent::new(
             level,
             message.to_string(),
@@ -316,7 +327,7 @@ mod tests {
     async fn test_file_sink_creation() {
         let temp_dir = TempDir::new().unwrap();
         let file_path = temp_dir.path().join("test.log");
-        
+
         let config = FileConfig {
             enabled: true,
             level: None,
@@ -330,7 +341,7 @@ mod tests {
             writer_cache_ttl_seconds: 300,
             writer_cache_capacity: 100,
         };
-        
+
         let sink = FileSink::new(config);
         assert!(!sink.is_running());
     }
@@ -339,7 +350,7 @@ mod tests {
     async fn test_file_sink_start_stop() {
         let temp_dir = TempDir::new().unwrap();
         let file_path = temp_dir.path().join("test.log");
-        
+
         let config = FileConfig {
             enabled: true,
             level: None,
@@ -353,14 +364,14 @@ mod tests {
             writer_cache_ttl_seconds: 300,
             writer_cache_capacity: 100,
         };
-        
+
         let mut sink = FileSink::new(config);
-        
+
         // 启动
         let result = sink.start().await;
         assert!(result.is_ok());
         assert!(sink.is_running());
-        
+
         // 关闭
         let result = sink.shutdown().await;
         assert!(result.is_ok());
@@ -370,7 +381,7 @@ mod tests {
     async fn test_file_sink_send_events() {
         let temp_dir = TempDir::new().unwrap();
         let file_path = temp_dir.path().join("test.log");
-        
+
         let config = FileConfig {
             enabled: true,
             level: None,
@@ -384,19 +395,19 @@ mod tests {
             writer_cache_ttl_seconds: 300,
             writer_cache_capacity: 100,
         };
-        
+
         let mut sink = FileSink::new(config);
         sink.start().await.unwrap();
-        
+
         // 发送事件
         let event = create_test_event(Level::INFO, "Test message");
         sink.send_event(event).await.unwrap();
-        
+
         // 等待一下让事件被处理
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        
+
         sink.shutdown().await.unwrap();
-        
+
         // 检查文件是否被创建并包含内容
         assert!(file_path.exists());
         let content = tokio::fs::read_to_string(&file_path).await.unwrap();
@@ -407,7 +418,7 @@ mod tests {
     async fn test_file_sink_try_send() {
         let temp_dir = TempDir::new().unwrap();
         let file_path = temp_dir.path().join("test.log");
-        
+
         let config = FileConfig {
             enabled: true,
             level: None,
@@ -421,18 +432,18 @@ mod tests {
             writer_cache_ttl_seconds: 300,
             writer_cache_capacity: 100,
         };
-        
+
         let mut sink = FileSink::new(config);
         sink.start().await.unwrap();
-        
+
         // 使用 try_send
         let event = create_test_event(Level::INFO, "Try send message");
         let result = sink.try_send_event(event);
         assert!(result.is_ok());
-        
+
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         sink.shutdown().await.unwrap();
-        
+
         let content = tokio::fs::read_to_string(&file_path).await.unwrap();
         assert!(content.contains("Try send message"));
     }
@@ -441,7 +452,7 @@ mod tests {
     async fn test_file_sink_multiple_events() {
         let temp_dir = TempDir::new().unwrap();
         let file_path = temp_dir.path().join("test.log");
-        
+
         let config = FileConfig {
             enabled: true,
             level: None,
@@ -455,21 +466,21 @@ mod tests {
             writer_cache_ttl_seconds: 300,
             writer_cache_capacity: 100,
         };
-        
+
         let mut sink = FileSink::new(config);
         sink.start().await.unwrap();
-        
+
         // 发送多个事件
         for i in 0..10 {
             let event = create_test_event(Level::INFO, &format!("Message {}", i));
             sink.send_event(event).await.unwrap();
         }
-        
+
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
         sink.shutdown().await.unwrap();
-        
+
         let content = tokio::fs::read_to_string(&file_path).await.unwrap();
-        
+
         // 检查所有消息都被写入
         for i in 0..10 {
             assert!(content.contains(&format!("Message {}", i)));
@@ -480,7 +491,7 @@ mod tests {
     async fn test_file_sink_config_access() {
         let temp_dir = TempDir::new().unwrap();
         let file_path = temp_dir.path().join("test.log");
-        
+
         let config = FileConfig {
             enabled: true,
             level: None,
@@ -494,9 +505,9 @@ mod tests {
             writer_cache_ttl_seconds: 300,
             writer_cache_capacity: 100,
         };
-        
+
         let sink = FileSink::new(config.clone());
-        
+
         // 检查配置访问
         assert_eq!(sink.config().directory, config.directory);
         assert_eq!(sink.config().filename_base, config.filename_base);

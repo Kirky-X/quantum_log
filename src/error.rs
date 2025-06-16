@@ -6,31 +6,30 @@
 
 use thiserror::Error;
 
-
 /// Main error type for QuantumLog operations
 #[derive(Error, Debug)]
 pub enum QuantumLogError {
     /// Configuration-related errors
     #[error("Configuration error: {0}")]
     ConfigError(String),
-    
+
     /// Initialization errors
     #[error("Initialization error: {0}")]
     InitializationError(String),
-    
+
     /// 停机相关错误
     #[error("Shutdown in progress")]
     ShutdownInProgress,
-    
+
     #[error("Already shutdown")]
     AlreadyShutdown,
-    
+
     #[error("Shutdown failed: {0}")]
     ShutdownFailed(String),
-    
+
     #[error("Shutdown timeout")]
     ShutdownTimeout,
-    
+
     #[error("Shutdown channel closed")]
     ShutdownChannelClosed,
 
@@ -228,13 +227,22 @@ impl QuantumLogError {
     /// Get the error category for logging purposes
     pub fn category(&self) -> &'static str {
         match self {
-            Self::ConfigError(_) | Self::ConfigFileMissing(_) | Self::InvalidLogLevel(_) | Self::InvalidPath(_) => "config",
+            Self::ConfigError(_)
+            | Self::ConfigFileMissing(_)
+            | Self::InvalidLogLevel(_)
+            | Self::InvalidPath(_) => "config",
             Self::InitializationError(_) => "initialization",
-            Self::ShutdownInProgress | Self::AlreadyShutdown | Self::ShutdownFailed(_) | Self::ShutdownTimeout | Self::ShutdownChannelClosed => "shutdown",
+            Self::ShutdownInProgress
+            | Self::AlreadyShutdown
+            | Self::ShutdownFailed(_)
+            | Self::ShutdownTimeout
+            | Self::ShutdownChannelClosed => "shutdown",
             Self::IoError { .. } => "io",
             Self::SerializationError { .. } => "serialization",
             Self::TomlError { .. } => "toml",
-            Self::DatabaseError(_) | Self::DatabaseConnection { .. } | Self::DatabasePool { .. } => "database",
+            Self::DatabaseError(_)
+            | Self::DatabaseConnection { .. }
+            | Self::DatabasePool { .. } => "database",
             Self::CsvError { .. } => "csv",
             Self::MpiError(_) => "mpi",
             #[cfg(feature = "dynamic_mpi")]
@@ -262,7 +270,10 @@ mod tests {
     fn test_error_creation() {
         let config_err = QuantumLogError::config("Invalid configuration");
         assert!(matches!(config_err, QuantumLogError::ConfigError(_)));
-        assert_eq!(config_err.to_string(), "Configuration error: Invalid configuration");
+        assert_eq!(
+            config_err.to_string(),
+            "Configuration error: Invalid configuration"
+        );
 
         let db_err = QuantumLogError::database("Connection failed");
         assert!(matches!(db_err, QuantumLogError::DatabaseError(_)));
@@ -277,7 +288,10 @@ mod tests {
 
         let json_error = serde_json::from_str::<serde_json::Value>("{invalid json").unwrap_err();
         let quantum_error: QuantumLogError = json_error.into();
-        assert!(matches!(quantum_error, QuantumLogError::SerializationError { .. }));
+        assert!(matches!(
+            quantum_error,
+            QuantumLogError::SerializationError { .. }
+        ));
     }
 
     #[test]
@@ -298,7 +312,10 @@ mod tests {
         assert_eq!(QuantumLogError::channel("test").category(), "channel");
         assert_eq!(QuantumLogError::validation("test").category(), "validation");
         assert_eq!(QuantumLogError::rotation("test").category(), "rotation");
-        assert_eq!(QuantumLogError::background_task("test").category(), "background_task");
+        assert_eq!(
+            QuantumLogError::background_task("test").category(),
+            "background_task"
+        );
         assert_eq!(QuantumLogError::internal("test").category(), "internal");
     }
 
@@ -326,7 +343,7 @@ mod tests {
     fn test_error_chain() {
         let io_error = io::Error::new(io::ErrorKind::PermissionDenied, "Access denied");
         let quantum_error: QuantumLogError = io_error.into();
-        
+
         // Test that the source error is preserved
         let error_string = quantum_error.to_string();
         assert!(error_string.contains("Access denied"));
@@ -345,11 +362,11 @@ mod tests {
         fn test_function() -> Result<i32> {
             Ok(42)
         }
-        
+
         fn test_error_function() -> Result<i32> {
             Err(QuantumLogError::config("test"))
         }
-        
+
         assert_eq!(test_function().unwrap(), 42);
         assert!(test_error_function().is_err());
     }
@@ -359,11 +376,11 @@ mod tests {
         // Test with null character
         let err = QuantumLogError::config("test\0error");
         assert!(err.to_string().contains("test\0error"));
-        
+
         // Test with newlines
         let err = QuantumLogError::config("line1\nline2\r\nline3");
         assert!(err.to_string().contains("line1\nline2\r\nline3"));
-        
+
         // Test with tabs
         let err = QuantumLogError::config("tab\there");
         assert!(err.to_string().contains("tab\there"));
@@ -383,7 +400,7 @@ mod tests {
             QuantumLogError::background_task("background_task"),
             QuantumLogError::internal("internal"),
         ];
-        
+
         for error in errors {
             let display_str = error.to_string();
             assert!(!display_str.is_empty());

@@ -2,8 +2,6 @@
 //!
 //! 此模块定义了与数据库表对应的 Rust 结构体，用于 Diesel ORM 操作。
 
-use chrono::{DateTime, NaiveDateTime, Utc};
-
 #[cfg(feature = "database")]
 use crate::core::event::QuantumLogEvent;
 #[cfg(feature = "database")]
@@ -20,46 +18,46 @@ use serde::{Deserialize, Serialize};
 pub struct NewQuantumLogEntry {
     /// 日志时间戳
     pub timestamp: NaiveDateTime,
-    
+
     /// 日志级别
     pub level: String,
-    
+
     /// 日志目标
     pub target: String,
-    
+
     /// 日志消息
     pub message: String,
-    
+
     /// 额外字段（JSON 格式）
     pub fields: Option<String>,
-    
+
     /// Span ID
     pub span_id: Option<String>,
-    
+
     /// Span 名称
     pub span_name: Option<String>,
-    
+
     /// 进程 ID
     pub process_id: i32,
-    
+
     /// 线程 ID
     pub thread_id: String,
-    
+
     /// 主机名
     pub hostname: String,
-    
+
     /// 用户名
     pub username: String,
-    
+
     /// MPI Rank
     pub mpi_rank: Option<i32>,
-    
+
     /// 源文件路径
     pub file_path: Option<String>,
-    
+
     /// 源代码行号
     pub line_number: Option<i32>,
-    
+
     /// 模块路径
     pub module_path: Option<String>,
 }
@@ -73,49 +71,49 @@ pub struct NewQuantumLogEntry {
 pub struct QuantumLogEntry {
     /// 主键，自增 ID
     pub id: i32,
-    
+
     /// 日志时间戳（UTC）
     pub timestamp: NaiveDateTime,
-    
+
     /// 日志级别（如 "INFO", "ERROR" 等）
     pub level: String,
-    
+
     /// 日志目标（通常是模块路径）
     pub target: String,
-    
+
     /// 日志消息内容
     pub message: String,
-    
+
     /// 额外字段（JSON 格式，可选）
     pub fields: Option<String>,
-    
+
     /// Span ID
     pub span_id: Option<String>,
-    
+
     /// Span 名称
     pub span_name: Option<String>,
-    
+
     /// 进程 ID
     pub process_id: i32,
-    
+
     /// 线程 ID
     pub thread_id: String,
-    
+
     /// 主机名
     pub hostname: String,
-    
+
     /// 用户名
     pub username: String,
-    
+
     /// MPI Rank 号（可选）
     pub mpi_rank: Option<i32>,
-    
+
     /// 源文件路径
     pub file_path: Option<String>,
-    
+
     /// 源代码行号（可选）
     pub line_number: Option<i32>,
-    
+
     /// 模块路径
     pub module_path: Option<String>,
 }
@@ -151,33 +149,33 @@ impl NewQuantumLogEntry {
             module_path: None,
         }
     }
-    
+
     /// 设置源文件信息
     pub fn with_file_info(mut self, file_path: Option<String>, line_number: Option<i32>) -> Self {
         self.file_path = file_path;
         self.line_number = line_number;
         self
     }
-    
+
     /// 设置模块路径
     pub fn with_module_path(mut self, module_path: Option<String>) -> Self {
         self.module_path = module_path;
         self
     }
-    
+
     /// 设置 MPI Rank 信息
     pub fn with_mpi_rank(mut self, mpi_rank: Option<i32>) -> Self {
         self.mpi_rank = mpi_rank;
         self
     }
-    
+
     /// 设置 Span 信息
     pub fn with_span_info(mut self, span_id: Option<String>, span_name: Option<String>) -> Self {
         self.span_id = span_id;
         self.span_name = span_name;
         self
     }
-    
+
     /// 设置额外字段
     pub fn with_fields(mut self, fields: Option<String>) -> Self {
         self.fields = fields;
@@ -191,7 +189,7 @@ impl QuantumLogEntry {
     pub fn formatted_timestamp(&self, format: &str) -> String {
         self.timestamp.format(format).to_string()
     }
-    
+
     /// 检查是否包含指定的字段
     pub fn has_field(&self, field_name: &str) -> bool {
         if let Some(fields_json) = &self.fields {
@@ -201,7 +199,7 @@ impl QuantumLogEntry {
         }
         false
     }
-    
+
     /// 获取指定字段的值
     pub fn get_field(&self, field_name: &str) -> Option<serde_json::Value> {
         if let Some(fields_json) = &self.fields {
@@ -211,7 +209,7 @@ impl QuantumLogEntry {
         }
         None
     }
-    
+
     /// 获取解析后的 Span 信息
     pub fn get_span_info(&self) -> Option<serde_json::Value> {
         if let Some(span_json) = &self.span_id {
@@ -241,33 +239,33 @@ impl LogBatch {
             created_at: Utc::now(),
         }
     }
-    
+
     /// 添加日志条目到批次
     pub fn add_entry(&mut self, entry: NewQuantumLogEntry) {
         self.entries.push(entry);
     }
-    
+
     /// 获取批次大小
     pub fn len(&self) -> usize {
         self.entries.len()
     }
-    
+
     /// 检查批次是否为空
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
-    
+
     /// 清空批次
     pub fn clear(&mut self) {
         self.entries.clear();
         self.created_at = Utc::now();
     }
-    
+
     /// 检查批次是否已满
     pub fn is_full(&self, max_size: usize) -> bool {
         self.entries.len() >= max_size
     }
-    
+
     /// 检查批次是否超时
     pub fn is_expired(&self, timeout_seconds: u64) -> bool {
         let elapsed = Utc::now().signed_duration_since(self.created_at);
@@ -286,7 +284,7 @@ impl Default for LogBatch {
 mod tests {
     use super::*;
     use chrono::Utc;
-    
+
     #[test]
     fn test_new_quantum_log_entry_creation() {
         let timestamp = Utc::now().naive_utc();
@@ -300,7 +298,7 @@ mod tests {
             "localhost".to_string(),
             "testuser".to_string(),
         );
-        
+
         assert_eq!(entry.timestamp, timestamp);
         assert_eq!(entry.level, "INFO");
         assert_eq!(entry.target, "test::module");
@@ -312,7 +310,7 @@ mod tests {
         assert!(entry.file_path.is_none());
         assert!(entry.line_number.is_none());
     }
-    
+
     #[test]
     fn test_entry_builder_methods() {
         let timestamp = Utc::now().naive_utc();
@@ -331,7 +329,7 @@ mod tests {
         .with_mpi_rank(Some(0))
         .with_span_info(Some("abc123".to_string()), Some("test_span".to_string()))
         .with_fields(Some("{\"custom\":\"value\"}".to_string()));
-        
+
         assert_eq!(entry.file_path, Some("test.rs".to_string()));
         assert_eq!(entry.line_number, Some(42));
         assert_eq!(entry.module_path, Some("test::module".to_string()));
@@ -344,13 +342,13 @@ mod tests {
         assert_eq!(entry.span_name, Some("test_span".to_string()));
         assert_eq!(entry.fields, Some("{\"custom\":\"value\"}".to_string()));
     }
-    
+
     #[test]
     fn test_log_batch_operations() {
         let mut batch = LogBatch::new();
         assert!(batch.is_empty());
         assert_eq!(batch.len(), 0);
-        
+
         let entry = NewQuantumLogEntry::new(
             Utc::now().naive_utc(),
             "INFO".to_string(),
@@ -361,30 +359,30 @@ mod tests {
             "localhost".to_string(),
             "testuser".to_string(),
         );
-        
+
         batch.add_entry(entry);
         assert!(!batch.is_empty());
         assert_eq!(batch.len(), 1);
-        
+
         assert!(batch.is_full(1));
         assert!(!batch.is_full(2));
-        
+
         batch.clear();
         assert!(batch.is_empty());
         assert_eq!(batch.len(), 0);
     }
-    
+
     #[test]
     fn test_batch_expiration() {
         let mut batch = LogBatch::new();
         // 新创建的批次不应该过期
         assert!(!batch.is_expired(60));
-        
+
         // 手动设置一个过去的时间
         batch.created_at = Utc::now() - chrono::Duration::seconds(120);
         assert!(batch.is_expired(60));
     }
-    
+
     #[test]
     fn test_quantum_log_entry_field_operations() {
         let entry = QuantumLogEntry {
@@ -405,7 +403,7 @@ mod tests {
             span_name: Some("test_operation".to_string()),
             fields: Some("{\"severity\":\"high\"}".to_string()),
         };
-        
+
         // 测试字段访问
         assert_eq!(entry.id, 1);
         assert_eq!(entry.level, "ERROR");
@@ -413,16 +411,19 @@ mod tests {
         assert_eq!(entry.line_number, Some(100));
         assert_eq!(entry.process_id, 9999);
         assert_eq!(entry.thread_id, "thread-8888");
-        
+
         // 测试 JSON 解析
         let span_info = entry.get_span_info();
         assert!(span_info.is_some());
-        
+
         assert!(entry.has_field("severity"));
         assert!(!entry.has_field("nonexistent"));
-        
+
         let severity_value = entry.get_field("severity");
         assert!(severity_value.is_some());
-        assert_eq!(severity_value.unwrap(), serde_json::Value::String("high".to_string()));
+        assert_eq!(
+            severity_value.unwrap(),
+            serde_json::Value::String("high".to_string())
+        );
     }
 }

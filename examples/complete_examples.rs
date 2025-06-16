@@ -2,7 +2,7 @@
 //! 这个文件包含了所有主要使用场景的完整、可运行的示例代码
 
 use quantum_log::{
-    init, init_with_config, init_with_builder, init_quantum_logger, shutdown,
+    init, shutdown,
     get_diagnostics, get_buffer_stats, is_initialized, QuantumLogConfig,
 };
 use quantum_log::config::*;
@@ -114,7 +114,7 @@ async fn example_error_handling_diagnostics() -> Result<(), Box<dyn std::error::
     }
     
     // 获取缓冲区统计信息
-    if let Some(stats) = quantum_log::get_buffer_stats() {
+    if let Some(stats) = get_buffer_stats() {
         info!(
             current_size = stats.current_size,
             dropped_count = stats.dropped_count,
@@ -124,7 +124,7 @@ async fn example_error_handling_diagnostics() -> Result<(), Box<dyn std::error::
     }
     
     // 获取诊断信息
-    let diagnostics = quantum_log::get_diagnostics();
+    let diagnostics = get_diagnostics();
     info!(
         events_processed = diagnostics.events_processed,
         events_dropped = diagnostics.events_dropped_backpressure + diagnostics.events_dropped_error,
@@ -149,35 +149,35 @@ async fn example_error_handling_diagnostics() -> Result<(), Box<dyn std::error::
 /// 示例7: 高级配置
 async fn example_advanced_config() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== 示例7: 高级配置 ===");
-    
-    let config = QuantumLogConfig {
+
+    QuantumLogConfig {
         global_level: "DEBUG".to_string(),
         pre_init_buffer_size: Some(2000),
         pre_init_stdout_enabled: true,
-        backpressure_strategy: quantum_log::config::BackpressureStrategy::Drop,
-        
+        backpressure_strategy: BackpressureStrategy::Drop,
+
         // 配置标准输出
-        stdout: Some(quantum_log::config::StdoutConfig {
+        stdout: Some(StdoutConfig {
             enabled: true,
             level: Some("INFO".to_string()),
             color_enabled: Some(true),
             level_colors: None,
-            format: quantum_log::config::OutputFormat::Json,
+            format: OutputFormat::Json,
             colored: true,
         }),
-        
+
         // 配置文件输出
         file: Some(quantum_log::config::FileSinkConfig {
             enabled: true,
             level: Some("DEBUG".to_string()),
-            output_type: quantum_log::config::FileOutputType::Json,
+            output_type: FileOutputType::Json,
             directory: std::path::PathBuf::from("./logs"),
             filename_base: "quantum".to_string(),
             extension: Some("log".to_string()),
-            separation_strategy: quantum_log::config::FileSeparationStrategy::None,
+            separation_strategy: FileSeparationStrategy::None,
             write_buffer_size: 16384,
-            rotation: Some(quantum_log::config::RotationConfig {
-                strategy: quantum_log::config::RotationStrategy::Size,
+            rotation: Some(RotationConfig {
+                strategy: RotationStrategy::Size,
                 max_size_mb: Some(50),
                 max_files: Some(5),
                 compress_rotated_files: false,
@@ -185,7 +185,7 @@ async fn example_advanced_config() -> Result<(), Box<dyn std::error::Error>> {
             writer_cache_ttl_seconds: 600,
             writer_cache_capacity: 2048,
         }),
-        
+
         // 配置上下文字段
         context_fields: ContextFieldsConfig {
             timestamp: true,
@@ -199,17 +199,17 @@ async fn example_advanced_config() -> Result<(), Box<dyn std::error::Error>> {
             hostname: true,
             span_info: true,
         },
-        
+
         // 配置格式
-        format: quantum_log::config::LogFormatConfig {
+        format: LogFormatConfig {
             timestamp_format: "%Y-%m-%d %H:%M:%S%.3f".to_string(),
             template: "{timestamp} [{level}] {target} - {message}".to_string(),
             csv_columns: None,
             json_flatten_fields: false,
             json_fields_key: "fields".to_string(),
-            format_type: quantum_log::config::LogFormatType::Json,
+            format_type: LogFormatType::Json,
         },
-        
+
         // 数据库配置（需要 database 特性）
         #[cfg(feature = "database")]
         database: Some(DatabaseSinkConfig {
@@ -224,7 +224,7 @@ async fn example_advanced_config() -> Result<(), Box<dyn std::error::Error>> {
             connection_timeout_ms: 10000,
             auto_create_table: true,
         }),
-        
+
         #[cfg(not(feature = "database"))]
         database: None,
     };

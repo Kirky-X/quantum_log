@@ -81,7 +81,9 @@ impl QuantumLogEvent {
     /// 获取事件的格式化字符串表示
     pub fn to_formatted_string(&self, format: &str) -> String {
         match format {
-            "json" => self.to_json().unwrap_or_else(|_| "<serialization error>".to_string()),
+            "json" => self
+                .to_json()
+                .unwrap_or_else(|_| "<serialization error>".to_string()),
             "compact" => {
                 format!(
                     "[{}] {} {}: {}",
@@ -100,7 +102,7 @@ impl QuantumLogEvent {
                     self.line.map_or("?".to_string(), |l| l.to_string()),
                     self.message
                 );
-                
+
                 if !self.fields.is_empty() {
                     result.push_str(" {");
                     for (key, value) in &self.fields {
@@ -108,7 +110,7 @@ impl QuantumLogEvent {
                     }
                     result.push_str(" }");
                 }
-                
+
                 result
             }
             _ => self.message.clone(),
@@ -129,7 +131,9 @@ impl QuantumLogEvent {
             self.context.tid.to_string(),
             self.context.username.clone().unwrap_or_default(),
             self.context.hostname.clone().unwrap_or_default(),
-            self.context.mpi_rank.map_or(String::new(), |r| r.to_string()),
+            self.context
+                .mpi_rank
+                .map_or(String::new(), |r| r.to_string()),
             serde_json::to_string(&self.fields).unwrap_or_default(),
             serde_json::to_string(&self.context.custom_fields).unwrap_or_default(),
         ]
@@ -156,8 +160,6 @@ impl QuantumLogEvent {
     }
 }
 
-
-
 impl ContextInfo {
     /// 创建新的上下文信息
     pub fn new() -> Self {
@@ -183,16 +185,17 @@ mod tests {
 
     #[test]
     fn test_quantum_log_event_creation() {
-        static CALLSITE: tracing::callsite::DefaultCallsite = tracing::callsite::DefaultCallsite::new(&tracing::Metadata::new(
-            "test",
-            "test_target",
-            Level::INFO,
-            Some("test.rs"),
-            Some(42),
-            Some("test_module"),
-            tracing::field::FieldSet::new(&[], tracing::callsite::Identifier(&CALLSITE)),
-            tracing::metadata::Kind::EVENT,
-        ));
+        static CALLSITE: tracing::callsite::DefaultCallsite =
+            tracing::callsite::DefaultCallsite::new(&tracing::Metadata::new(
+                "test",
+                "test_target",
+                Level::INFO,
+                Some("test.rs"),
+                Some(42),
+                Some("test_module"),
+                tracing::field::FieldSet::new(&[], tracing::callsite::Identifier(&CALLSITE)),
+                tracing::metadata::Kind::EVENT,
+            ));
         let metadata = tracing::Metadata::new(
             "test",
             "test_target",
@@ -232,16 +235,17 @@ mod tests {
 
     #[test]
     fn test_event_formatting() {
-        static CALLSITE: tracing::callsite::DefaultCallsite = tracing::callsite::DefaultCallsite::new(&tracing::Metadata::new(
-            "test",
-            "test_target",
-            Level::INFO,
-            Some("test.rs"),
-            Some(42),
-            Some("test_module"),
-            tracing::field::FieldSet::new(&[], tracing::callsite::Identifier(&CALLSITE)),
-            tracing::metadata::Kind::EVENT,
-        ));
+        static CALLSITE: tracing::callsite::DefaultCallsite =
+            tracing::callsite::DefaultCallsite::new(&tracing::Metadata::new(
+                "test",
+                "test_target",
+                Level::INFO,
+                Some("test.rs"),
+                Some(42),
+                Some("test_module"),
+                tracing::field::FieldSet::new(&[], tracing::callsite::Identifier(&CALLSITE)),
+                tracing::metadata::Kind::EVENT,
+            ));
         let context = ContextInfo::default();
         let metadata = tracing::Metadata::new(
             "test",
@@ -274,16 +278,17 @@ mod tests {
 
     #[test]
     fn test_csv_functionality() {
-        static CALLSITE: tracing::callsite::DefaultCallsite = tracing::callsite::DefaultCallsite::new(&tracing::Metadata::new(
-            "test",
-            "test_target",
-            Level::INFO,
-            Some("test.rs"),
-            Some(42),
-            Some("test_module"),
-            tracing::field::FieldSet::new(&[], tracing::callsite::Identifier(&CALLSITE)),
-            tracing::metadata::Kind::EVENT,
-        ));
+        static CALLSITE: tracing::callsite::DefaultCallsite =
+            tracing::callsite::DefaultCallsite::new(&tracing::Metadata::new(
+                "test",
+                "test_target",
+                Level::INFO,
+                Some("test.rs"),
+                Some(42),
+                Some("test_module"),
+                tracing::field::FieldSet::new(&[], tracing::callsite::Identifier(&CALLSITE)),
+                tracing::metadata::Kind::EVENT,
+            ));
         let context = ContextInfo::default();
         let metadata = tracing::Metadata::new(
             "test",
@@ -306,7 +311,7 @@ mod tests {
 
         let headers = QuantumLogEvent::csv_headers();
         let row = event.to_csv_row();
-        
+
         assert_eq!(headers.len(), row.len());
         assert!(headers.contains(&"timestamp".to_string()));
         assert!(headers.contains(&"level".to_string()));
