@@ -32,7 +32,7 @@ diesel::table! {
 /// 为不同数据库类型提供特定的 SQL 类型映射
 #[cfg(feature = "postgres")]
 mod postgres_types {
-    use diesel::sql_types::*;
+    
 
     /// PostgreSQL 特定的表定义
     diesel::table! {
@@ -64,7 +64,7 @@ pub use self::quantum_logs::dsl::*;
 
 #[cfg(feature = "mysql")]
 mod mysql_types {
-    use diesel::sql_types::*;
+    
 
     /// MySQL 特定的表定义
     diesel::table! {
@@ -93,7 +93,7 @@ mod mysql_types {
 
 #[cfg(feature = "sqlite")]
 mod sqlite_types {
-    use diesel::sql_types::*;
+    
 
     /// SQLite 特定的表定义
     diesel::table! {
@@ -204,8 +204,7 @@ mod tests {
     fn test_table_definition_compiles() {
         // 这个测试确保表定义能够编译通过
         // 实际的表结构验证将在集成测试中进行
-        #[cfg(feature = "database")]
-        use diesel::prelude::*;
+        
 
         // 测试表名是否正确
         let table_name = "quantum_logs";
@@ -217,20 +216,20 @@ mod tests {
         // 测试创建表的 SQL 语句不为空
         #[cfg(feature = "postgres")]
         {
-            assert!(!create_table_sql::POSTGRES_CREATE_TABLE.is_empty());
-            assert!(create_table_sql::POSTGRES_CREATE_TABLE.contains("quantum_logs"));
+            assert!(!super::create_table_sql::POSTGRES_CREATE_TABLE.is_empty());
+            assert!(super::create_table_sql::POSTGRES_CREATE_TABLE.contains("quantum_logs"));
         }
 
         #[cfg(feature = "mysql")]
         {
-            assert!(!create_table_sql::MYSQL_CREATE_TABLE.is_empty());
-            assert!(create_table_sql::MYSQL_CREATE_TABLE.contains("quantum_logs"));
+            assert!(!super::create_table_sql::MYSQL_CREATE_TABLE.is_empty());
+            assert!(super::create_table_sql::MYSQL_CREATE_TABLE.contains("quantum_logs"));
         }
 
         #[cfg(feature = "sqlite")]
         {
-            assert!(!create_table_sql::SQLITE_CREATE_TABLE.is_empty());
-            assert!(create_table_sql::SQLITE_CREATE_TABLE.contains("quantum_logs"));
+            assert!(!super::create_table_sql::SQLITE_CREATE_TABLE.is_empty());
+            assert!(super::create_table_sql::SQLITE_CREATE_TABLE.contains("quantum_logs"));
         }
     }
 }

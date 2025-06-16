@@ -5,11 +5,15 @@
 //! 使用连接池和批量插入来优化性能。
 
 use tokio::sync::mpsc;
+use tokio::time::{interval, Duration};
+use tracing::{debug, error, info, warn};
 
-use crate::config::DatabaseSinkConfig;
+use crate::config::{DatabaseSinkConfig, DatabaseType};
 use crate::core::event::QuantumLogEvent;
 use crate::error::QuantumLogError;
-use crate::sinks::database::models::NewQuantumLogEntry;
+use crate::sinks::database::models::{NewQuantumLogEntry, LogBatch};
+
+type Result<T> = std::result::Result<T, QuantumLogError>;
 
 #[cfg(feature = "database")]
 use diesel::prelude::*;
@@ -339,7 +343,7 @@ impl DatabaseSink {
     /// 将 QuantumLogEvent 转换为 NewQuantumLogEntry
     #[cfg(feature = "database")]
     async fn convert_event_to_entry(&self, event: &QuantumLogEvent) -> Result<NewQuantumLogEntry> {
-        use chrono::Utc;
+        
 
         let mut entry = NewQuantumLogEntry::new(
             event.timestamp.naive_utc(),
