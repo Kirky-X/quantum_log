@@ -29,12 +29,12 @@ pub use console::ConsoleSink;
 pub use file::FileSink;
 pub use level_file::LevelFileSink;
 pub use network::NetworkSink;
-pub use pipeline::{Pipeline, PipelineBuilder, PipelineConfig, ErrorStrategy};
+pub use pipeline::{ErrorStrategy, Pipeline, PipelineBuilder, PipelineConfig};
 pub use rolling_file::RollingFileSink;
 pub use stdout::StdoutSink;
 pub use traits::{
-    QuantumSink, ExclusiveSink, SinkFactory, SinkType, 
-    SinkMetadata, SinkError, SinkResult
+    ExclusiveSink, QuantumSink, SinkError, SinkFactory,
+    SinkMetadata, SinkResult, SinkType
 };
 
 #[cfg(feature = "database")]
@@ -42,10 +42,4 @@ pub use database::DatabaseSink;
 
 // 可叠加型 Sink 仅供包内部使用，不对外公开
 pub(crate) use traits::StackableSink;
-pub(crate) use default_stdout::{DefaultStdoutSink, DefaultStdoutConfig, StdoutTarget};
 
-// 便利函数 - 仅供包内部使用
-pub(crate) use default_stdout::{
-    create_default_stdout_sink, create_json_stdout_sink, 
-    create_plain_stdout_sink, create_stderr_sink
-};

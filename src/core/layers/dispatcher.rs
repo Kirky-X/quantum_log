@@ -320,7 +320,7 @@ impl DispatcherLayer {
             }
 
             let quantum_event_clone = quantum_event.clone();
-            let strategy = sink.backpressure_strategy.clone();
+            let _ = sink.backpressure_strategy.clone();
 
             match &sink.processor {
                 SinkProcessorInner::Stdout(processor) => {

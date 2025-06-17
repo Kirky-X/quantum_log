@@ -407,7 +407,7 @@ mod tests {
         
         let sink = CsvSink::new(csv_path, true, Some(','));
         assert_eq!(sink.name(), "csv_sink");
-        assert_eq!(sink.sink_type(), SinkType::File);
+        assert_eq!(sink.metadata().sink_type, SinkType::Stackable);
     }
 
     #[tokio::test]
