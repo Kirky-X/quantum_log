@@ -5,8 +5,11 @@
 use crate::config::StdoutConfig;
 use crate::core::event::QuantumLogEvent;
 use crate::error::{QuantumLogError, Result};
+use crate::sinks::traits::{QuantumSink, StackableSink, SinkError};
+use async_trait::async_trait;
 
 use std::io::{self, Write};
+use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tracing::Level;
@@ -26,8 +29,8 @@ enum SinkMessage {
 #[derive(Debug)]
 pub struct ConsoleSink {
     config: StdoutConfig,
-    sender: Option<mpsc::UnboundedSender<SinkMessage>>,
-    handle: Option<JoinHandle<Result<()>>>,
+    sender: Arc<Mutex<Option<mpsc::UnboundedSender<SinkMessage>>>>,
+    handle: Arc<Mutex<Option<JoinHandle<Result<()>>>>>,
 }
 
 impl ConsoleSink {
@@ -35,8 +38,8 @@ impl ConsoleSink {
     pub fn new(config: StdoutConfig) -> Self {
         Self {
             config,
-            sender: None,
-            handle: None,
+            sender: Arc::new(Mutex::new(None)),
+            handle: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -59,16 +62,23 @@ impl ConsoleSink {
 
         let handle = tokio::spawn(async move { processor.run().await });
 
-        self.sender = Some(sender);
-        self.handle = Some(handle);
+        {
+            let mut sender_guard = self.sender.lock().unwrap();
+            *sender_guard = Some(sender);
+        }
+        {
+            let mut handle_guard = self.handle.lock().unwrap();
+            *handle_guard = Some(handle);
+        }
 
         tracing::info!("ConsoleSink started");
         Ok(())
     }
 
     /// 发送事件（阻塞）
-    pub async fn send_event(&self, event: QuantumLogEvent) -> Result<()> {
-        if let Some(ref sender) = self.sender {
+    pub async fn send_event_internal(&self, event: QuantumLogEvent) -> Result<()> {
+        let sender_guard = self.sender.lock().unwrap();
+        if let Some(ref sender) = *sender_guard {
             sender
                 .send(SinkMessage::Event(Box::new(event)))
                 .map_err(|_| {
@@ -84,7 +94,8 @@ impl ConsoleSink {
 
     /// 尝试发送事件（非阻塞）
     pub fn try_send_event(&self, event: QuantumLogEvent) -> Result<()> {
-        if let Some(ref sender) = self.sender {
+        let sender_guard = self.sender.lock().unwrap();
+        if let Some(ref sender) = *sender_guard {
             sender
                 .send(SinkMessage::Event(Box::new(event)))
                 .map_err(|_| {
@@ -99,8 +110,13 @@ impl ConsoleSink {
     }
 
     /// 关闭 Sink
-    pub async fn shutdown(&mut self) -> Result<()> {
-        if let Some(sender) = self.sender.take() {
+    pub async fn shutdown(&self) -> Result<()> {
+        let sender = {
+            let mut sender_guard = self.sender.lock().unwrap();
+            sender_guard.take()
+        };
+        
+        if let Some(sender) = sender {
             let (response_sender, response_receiver) = oneshot::channel();
 
             // 发送关闭信号
@@ -116,7 +132,12 @@ impl ConsoleSink {
             })?;
 
             // 等待任务完成
-            if let Some(handle) = self.handle.take() {
+            let handle = {
+                let mut handle_guard = self.handle.lock().unwrap();
+                handle_guard.take()
+            };
+            
+            if let Some(handle) = handle {
                 let _ = handle.await;
             }
 
@@ -127,9 +148,11 @@ impl ConsoleSink {
         }
     }
 
-    /// 检查是否正在运行
+    /// 检查 Sink 是否正在运行
     pub fn is_running(&self) -> bool {
-        self.sender.is_some() && self.handle.is_some()
+        let sender_guard = self.sender.lock().unwrap();
+        let handle_guard = self.handle.lock().unwrap();
+        sender_guard.is_some() && handle_guard.is_some()
     }
 
     /// 获取配置
@@ -527,3 +550,61 @@ mod tests {
         assert_eq!(sink.config().color_enabled, config.color_enabled);
     }
 }
+
+// 实现新的统一 Sink trait
+#[async_trait]
+impl QuantumSink for ConsoleSink {
+    type Config = StdoutConfig;
+    type Error = SinkError;
+
+    async fn send_event(&self, event: QuantumLogEvent) -> std::result::Result<(), Self::Error> {
+        self.send_event_internal(event).await
+            .map_err(|e| match e {
+                QuantumLogError::ChannelError(msg) => SinkError::Generic(msg),
+                QuantumLogError::ConfigError(msg) => SinkError::Config(msg),
+                QuantumLogError::IoError { source } => SinkError::Io(source),
+                _ => SinkError::Generic(e.to_string()),
+            })
+    }
+
+    async fn shutdown(&self) -> std::result::Result<(), Self::Error> {
+        self.shutdown().await
+            .map_err(|e| match e {
+                QuantumLogError::ChannelError(msg) => SinkError::Generic(msg),
+                QuantumLogError::ConfigError(msg) => SinkError::Config(msg),
+                QuantumLogError::IoError { source } => SinkError::Io(source),
+                _ => SinkError::Generic(e.to_string()),
+            })
+    }
+
+    async fn is_healthy(&self) -> bool {
+        self.is_running()
+    }
+
+    fn name(&self) -> &'static str {
+        "console"
+    }
+
+    fn stats(&self) -> String {
+        format!(
+            "ConsoleSink: running={}, config={:?}",
+            self.is_running(),
+            self.config
+        )
+    }
+
+    fn metadata(&self) -> crate::sinks::traits::SinkMetadata {
+        crate::sinks::traits::SinkMetadata {
+            name: "console".to_string(),
+            sink_type: crate::sinks::traits::SinkType::Stackable,
+            enabled: self.is_running(),
+            description: Some(format!(
+                "Console sink with config: {:?}",
+                self.config
+            )),
+        }
+    }
+}
+
+// 标记为可叠加型 sink
+impl StackableSink for ConsoleSink {}

@@ -8,6 +8,7 @@ use crate::error::Result;
 #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
 use crate::sinks::database::DatabaseSink;
 use crate::sinks::stdout::StdoutSink;
+use crate::sinks::traits::QuantumSink;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::Event;
@@ -258,13 +259,13 @@ impl DispatcherLayer {
 
             match &sink.processor {
                 SinkProcessorInner::Stdout(processor) => {
-                    if let Err(e) = processor.send_event(quantum_event_clone, &strategy).await {
+                    if let Err(e) = QuantumSink::send_event(processor.as_ref(), quantum_event_clone).await {
                         eprintln!("Failed to send event to stdout sink: {}", e);
                     }
                 }
                 #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
                 SinkProcessorInner::Database(processor) => {
-                    if let Err(e) = processor.send_event(quantum_event_clone, &strategy).await {
+                    if let Err(e) = QuantumSink::send_event(processor.as_ref(), quantum_event_clone).await {
                         eprintln!("Failed to send event to database sink: {}", e);
                     }
                 }
@@ -323,13 +324,13 @@ impl DispatcherLayer {
 
             match &sink.processor {
                 SinkProcessorInner::Stdout(processor) => {
-                    if let Err(e) = processor.send_event(quantum_event_clone, &strategy).await {
+                    if let Err(e) = QuantumSink::send_event(processor.as_ref(), quantum_event_clone).await {
                         eprintln!("Failed to send event to stdout sink: {}", e);
                     }
                 }
                 #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
                 SinkProcessorInner::Database(processor) => {
-                    if let Err(e) = processor.send_event(quantum_event_clone, &strategy).await {
+                    if let Err(e) = QuantumSink::send_event(processor.as_ref(), quantum_event_clone).await {
                         eprintln!("Failed to send event to database sink: {}", e);
                     }
                 } // 未来会添加其他 Sink 类型的处理
