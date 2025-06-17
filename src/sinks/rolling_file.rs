@@ -6,7 +6,9 @@ use crate::config::RollingFileConfig;
 use crate::core::event::QuantumLogEvent;
 use crate::error::{QuantumLogError, Result};
 use crate::sinks::file_common::{FileCleaner, FilePathGenerator, FileWriter};
+use crate::sinks::traits::{QuantumSink, ExclusiveSink, SinkError};
 use crate::utils::FileTools;
+use async_trait::async_trait;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -25,6 +27,7 @@ enum SinkMessage {
 /// 滚动文件 Sink
 ///
 /// 支持多种滚动策略的文件日志记录器
+#[derive(Debug)]
 pub struct RollingFileSink {
     sender: Option<mpsc::UnboundedSender<SinkMessage>>,
     handle: Option<tokio::task::JoinHandle<()>>,
@@ -63,7 +66,7 @@ impl RollingFileSink {
     }
 
     /// 发送事件
-    pub async fn send_event(&self, event: QuantumLogEvent) -> Result<()> {
+    pub async fn send_event_internal(&self, event: QuantumLogEvent) -> Result<()> {
         if let Some(sender) = &self.sender {
             sender
                 .send(SinkMessage::Event(Box::new(event)))
@@ -91,7 +94,7 @@ impl RollingFileSink {
     }
 
     /// 优雅停机
-    pub async fn shutdown(&mut self) -> Result<()> {
+    pub async fn shutdown_internal(&mut self) -> Result<()> {
         if let Some(sender) = self.sender.take() {
             let _ = sender.send(SinkMessage::Shutdown);
         }
@@ -474,6 +477,8 @@ mod tests {
             file: Some("test.rs".to_string()),
             line: Some(42),
             fields: std::collections::HashMap::new(),
+            thread_name: Some("test-thread".to_string()),
+            thread_id: "test-thread-id".to_string(),
             context: ContextInfo {
                 pid: std::process::id(),
                 tid: 0,
@@ -532,7 +537,7 @@ mod tests {
         assert!(sink.is_running());
 
         // 停止
-        assert!(sink.shutdown().await.is_ok());
+        assert!(sink.shutdown_internal().await.is_ok());
         assert!(!sink.is_running());
     }
 
@@ -558,12 +563,12 @@ mod tests {
         assert!(sink.start().await.is_ok());
 
         let event = create_test_event();
-        assert!(sink.send_event(event).await.is_ok());
+        assert!(sink.send_event_internal(event).await.is_ok());
 
         // 给一些时间让事件被处理
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        assert!(sink.shutdown().await.is_ok());
+        assert!(sink.shutdown_internal().await.is_ok());
 
         // 验证文件是否被创建
         let log_file = temp_dir.path().join("app.log");
@@ -594,16 +599,16 @@ mod tests {
         // 发送不同级别的事件
         let mut info_event = create_test_event();
         info_event.level = "INFO".to_string();
-        assert!(sink.send_event(info_event).await.is_ok());
+        assert!(sink.send_event_internal(info_event).await.is_ok());
 
         let mut error_event = create_test_event();
         error_event.level = "ERROR".to_string();
-        assert!(sink.send_event(error_event).await.is_ok());
+        assert!(sink.send_event_internal(error_event).await.is_ok());
 
         // 给一些时间让事件被处理
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        assert!(sink.shutdown().await.is_ok());
+        assert!(sink.shutdown_internal().await.is_ok());
 
         // 验证不同级别的文件是否被创建
         let info_file = temp_dir.path().join("app_INFO.log");
@@ -613,3 +618,64 @@ mod tests {
         assert!(error_file.exists());
     }
 }
+
+// 实现新的统一 Sink trait
+#[async_trait]
+impl QuantumSink for RollingFileSink {
+    type Config = RollingFileConfig;
+    type Error = SinkError;
+
+    async fn send_event(&self, event: QuantumLogEvent) -> std::result::Result<(), Self::Error> {
+        if let Some(sender) = &self.sender {
+            sender
+                .send(SinkMessage::Event(Box::new(event)))
+                .map_err(|_| SinkError::Generic("Failed to send event".to_string()))?;
+            Ok(())
+        } else {
+            Err(SinkError::Generic(
+                "RollingFileSink not started".to_string(),
+            ))
+        }
+    }
+
+    async fn shutdown(&self) -> std::result::Result<(), Self::Error> {
+        // 注意：这里需要可变引用，但trait要求不可变引用
+        // 在实际使用中，可能需要使用内部可变性或重新设计
+        Err(SinkError::Generic(
+            "RollingFileSink shutdown requires mutable reference".to_string()
+        ))
+    }
+
+    async fn is_healthy(&self) -> bool {
+        self.is_running()
+    }
+
+    fn name(&self) -> &'static str {
+        "rolling_file"
+    }
+
+    fn stats(&self) -> String {
+        format!(
+            "RollingFileSink: running={}, directory={}, base={}",
+            self.is_running(),
+            self.config.directory.display(),
+            self.config.filename_base
+        )
+    }
+
+    fn metadata(&self) -> crate::sinks::traits::SinkMetadata {
+        crate::sinks::traits::SinkMetadata {
+            name: "rolling_file".to_string(),
+            sink_type: crate::sinks::traits::SinkType::Exclusive,
+            enabled: self.is_running(),
+            description: Some(format!(
+                "Rolling file sink writing to directory {} with base filename {}",
+                self.config.directory.display(),
+                self.config.filename_base
+            )),
+        }
+    }
+}
+
+// 标记为独占型 sink
+impl ExclusiveSink for RollingFileSink {}

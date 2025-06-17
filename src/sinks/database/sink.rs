@@ -7,11 +7,13 @@
 use tokio::sync::mpsc;
 use tokio::time::{interval, Duration};
 use tracing::{debug, error, info, warn};
+use async_trait::async_trait;
 
 use crate::config::{DatabaseSinkConfig, DatabaseType};
 use crate::core::event::QuantumLogEvent;
 use crate::error::QuantumLogError;
 use crate::sinks::database::models::{NewQuantumLogEntry, LogBatch};
+use crate::sinks::traits::{QuantumSink, ExclusiveSink, SinkError, SinkMetadata, SinkType};
 
 type Result<T> = std::result::Result<T, QuantumLogError>;
 
@@ -343,8 +345,6 @@ impl DatabaseSink {
     /// 将 QuantumLogEvent 转换为 NewQuantumLogEntry
     #[cfg(feature = "database")]
     async fn convert_event_to_entry(&self, event: &QuantumLogEvent) -> Result<NewQuantumLogEntry> {
-        
-
         let mut entry = NewQuantumLogEntry::new(
             event.timestamp.naive_utc(),
             event.level.to_string(),
@@ -505,6 +505,119 @@ impl DatabaseSink {
         .map_err(|e| QuantumLogError::DatabaseError(format!("连接测试任务执行失败: {}", e)))?
     }
 }
+
+// 实现 QuantumSink trait
+#[async_trait]
+impl QuantumSink for DatabaseSink {
+    type Config = DatabaseSinkConfig;
+    type Error = SinkError;
+
+    async fn send_event(&self, event: QuantumLogEvent) -> std::result::Result<(), Self::Error> {
+        // 将 QuantumLogEvent 转换为 NewQuantumLogEntry
+        let mut entry = NewQuantumLogEntry::new(
+            event.timestamp.naive_utc(),
+            event.level.to_string(),
+            event.target.clone(),
+            event.message.clone(),
+            event.context.pid.try_into().unwrap_or(0),
+            event.context.tid.to_string(),
+            event.context.hostname.clone().unwrap_or_default(),
+            event.context.username.clone().unwrap_or_default(),
+        );
+
+        // 设置可选字段
+        if let Some(ref file_path) = event.file {
+            entry = entry.with_file_info(Some(file_path.clone()), event.line.map(|l| l as i32));
+        }
+
+        if let Some(ref module_path) = event.module_path {
+            entry = entry.with_module_path(Some(module_path.clone()));
+        }
+
+        if let Some(mpi_rank) = event.context.mpi_rank {
+            entry = entry.with_mpi_rank(Some(mpi_rank));
+        }
+
+        // 序列化额外字段
+        if !event.fields.is_empty() {
+            let fields_json = serde_json::to_string(&event.fields)
+                .map_err(|e| SinkError::Generic(format!("序列化字段失败: {}", e)))?;
+            entry = entry.with_fields(Some(fields_json));
+        }
+
+        // 创建单个条目的向量
+        let entries = vec![entry];
+
+        #[cfg(feature = "database")]
+        {
+            let pool = self.pool.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                Self::insert_batch_blocking(pool, entries)
+            }).await;
+
+            match result {
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(e)) => Err(SinkError::Database(e.to_string())),
+                Err(e) => Err(SinkError::Generic(format!("数据库任务执行失败: {}", e))),
+            }
+        }
+        #[cfg(not(feature = "database"))]
+        {
+            Err(SinkError::Generic("数据库功能未启用".to_string()))
+        }
+    }
+
+    async fn shutdown(&self) -> std::result::Result<(), Self::Error> {
+        // 数据库连接池会自动处理连接的关闭
+        debug!("DatabaseSink 正在关闭");
+        Ok(())
+    }
+
+    async fn is_healthy(&self) -> bool {
+        #[cfg(feature = "database")]
+        {
+            self.test_connection().await.is_ok()
+        }
+        #[cfg(not(feature = "database"))]
+        {
+            false
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "database"
+    }
+
+    fn stats(&self) -> String {
+        format!(
+            "DatabaseSink: type={:?}, table={}, batch_size={}, pool_size={}",
+            self.config.db_type,
+            self.full_table_name,
+            self.config.batch_size,
+            self.config.connection_pool_size
+        )
+    }
+
+    fn metadata(&self) -> SinkMetadata {
+        SinkMetadata {
+            name: "database".to_string(),
+            sink_type: SinkType::Exclusive,
+            enabled: self.config.enabled,
+            description: Some(format!(
+                "Database sink writing to {} table '{}'",
+                match self.config.db_type {
+                    DatabaseType::Sqlite => "SQLite",
+                    DatabaseType::Mysql => "MySQL",
+                    DatabaseType::Postgresql => "PostgreSQL",
+                },
+                self.full_table_name
+            )),
+        }
+    }
+}
+
+// 标记 DatabaseSink 为独占型 Sink
+impl ExclusiveSink for DatabaseSink {}
 
 /// 为没有启用数据库特性的情况提供占位实现
 #[cfg(not(feature = "database"))]

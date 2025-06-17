@@ -26,6 +26,10 @@ pub struct QuantumLogEvent {
     pub line: Option<u32>,
     /// 模块路径
     pub module_path: Option<String>,
+    /// 线程名称
+    pub thread_name: Option<String>,
+    /// 线程 ID
+    pub thread_id: String,
     /// 自定义字段
     pub fields: HashMap<String, serde_json::Value>,
     /// 上下文信息
@@ -68,6 +72,8 @@ impl QuantumLogEvent {
             file: metadata.file().map(|s| s.to_string()),
             line: metadata.line(),
             module_path: metadata.module_path().map(|s| s.to_string()),
+            thread_name: std::thread::current().name().map(|s| s.to_string()),
+            thread_id: format!("{:?}", std::thread::current().id()),
             fields,
             context,
         }

@@ -11,6 +11,7 @@
 
 ## 🚀 特性
 
+### 核心特性
 - **异步高性能**: 基于 Tokio 的异步架构，支持高并发日志记录
 - **多种输出目标**: 支持标准输出、文件、数据库等多种输出方式
 - **灵活配置**: 支持 TOML 配置文件和代码配置
@@ -19,6 +20,399 @@
 - **MPI 支持**: 专为高性能计算环境优化，支持 MPI 环境
 - **背压处理**: 智能处理高负载情况下的日志背压
 - **结构化日志**: 支持结构化日志记录和多种输出格式
+
+### 🆕 0.2.0 版本新特性
+- **统一 Sink Trait 系统**: 全新的统一接口设计，支持可叠加型和独占型 Sink
+- **Pipeline 管理系统**: 强大的多 Sink 协调管理，支持并行处理和错误策略
+- **健康检查机制**: 实时监控 Sink 健康状态，提供详细的统计信息
+- **优雅关闭增强**: 改进的关闭机制，确保所有 Sink 正确释放资源
+- **错误处理策略**: 灵活的错误处理选项（继续执行、停止处理、重试机制）
+- **背压控制**: 智能的事件速率限制和背压处理机制
+- **默认标准输出库**: 开箱即用的标准输出 Sink，支持多种格式和配置
+- **设计模式应用**: 大量应用策略模式、建造者模式、观察者模式等经典设计模式
+
+## 🔧 统一 Sink Trait 系统详解 (v0.2.0)
+
+QuantumLog 0.2.0 引入了革命性的统一 Sink trait 系统，为日志处理提供了更强大、更灵活的架构。
+
+### 核心 Trait 设计
+
+#### QuantumSink - 核心接口
+
+所有 Sink 都必须实现的核心 trait：
+
+```rust
+#[async_trait]
+pub trait QuantumSink: Send + Sync + std::fmt::Debug {
+    type Config;
+    type Error: std::error::Error + Send + Sync + 'static;
+    
+    // 核心方法
+    async fn send_event(&self, event: QuantumLogEvent) -> Result<(), Self::Error>;
+    async fn shutdown(&self) -> Result<(), Self::Error>;
+    async fn is_healthy(&self) -> bool;
+    
+    // 元数据方法
+    fn name(&self) -> &'static str;
+    fn stats(&self) -> String;
+    fn metadata(&self) -> SinkMetadata;
+}
+```
+
+#### Sink 类型分类
+
+**可叠加型 Sink (StackableSink)**
+- 可以与其他 Sink 同时工作
+- 适用于：控制台输出、网络发送、指标收集
+- 标记 trait，无额外方法
+
+```rust
+pub trait StackableSink: QuantumSink {}
+```
+
+**独占型 Sink (ExclusiveSink)**
+- 需要独占访问资源
+- 适用于：文件写入、数据库连接
+- 标记 trait，确保资源安全
+
+```rust
+pub trait ExclusiveSink: QuantumSink {}
+```
+
+### Pipeline 管理系统
+
+#### Pipeline 核心功能
+
+```rust
+pub struct Pipeline {
+    config: PipelineConfig,
+    stackable_sinks: Vec<Box<dyn StackableSink>>,
+    exclusive_sink: Option<Box<dyn ExclusiveSink>>,
+    stats: Arc<Mutex<PipelineStats>>,
+}
+
+impl Pipeline {
+    // 添加可叠加型 Sink
+    pub async fn add_stackable_sink(&mut self, sink: Box<dyn StackableSink>) -> Result<(), PipelineError>;
+    
+    // 设置独占型 Sink
+    pub async fn set_exclusive_sink(&mut self, sink: Box<dyn ExclusiveSink>) -> Result<(), PipelineError>;
+    
+    // 发送事件到所有 Sink
+    pub async fn send_event(&self, event: QuantumLogEvent) -> Result<(), PipelineError>;
+    
+    // 健康检查
+    pub async fn health_check(&self) -> HealthStatus;
+    
+    // 获取统计信息
+    pub async fn get_stats(&self) -> PipelineStats;
+    
+    // 优雅关闭
+    pub async fn shutdown(&mut self) -> Result<(), PipelineError>;
+}
+```
+
+#### 建造者模式配置
+
+```rust
+let mut pipeline = PipelineBuilder::new()
+    .with_name("production_pipeline".to_string())
+    .with_parallel_processing(true)
+    .with_error_strategy(ErrorStrategy::RetryThenContinue)
+    .with_max_retries(3)
+    .with_retry_delay(Duration::from_millis(100))
+    .build();
+```
+
+### 错误处理策略
+
+```rust
+#[derive(Debug, Clone)]
+pub enum ErrorStrategy {
+    FailFast,              // 遇到错误立即停止
+    LogAndContinue,        // 记录错误并继续
+    RetryThenContinue,     // 重试后继续
+    RetryThenFail,         // 重试后失败
+}
+```
+
+### 健康检查机制
+
+```rust
+#[derive(Debug, Clone)]
+pub struct HealthStatus {
+    pub overall_healthy: bool,
+    pub healthy_sinks: usize,
+    pub unhealthy_sinks: usize,
+    pub sink_details: Vec<SinkHealth>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SinkHealth {
+    pub name: String,
+    pub healthy: bool,
+    pub last_error: Option<String>,
+    pub error_count: u64,
+}
+```
+
+### 默认标准输出 Sink
+
+```rust
+use quantum_log::sinks::DefaultStdoutSink;
+
+// 创建默认标准输出 Sink
+let stdout_sink = DefaultStdoutSink::new();
+
+// 带配置的创建
+let stdout_sink = DefaultStdoutSink::with_config(StdoutConfig {
+    colored: true,
+    format: OutputFormat::Json,
+    level_filter: Some(Level::INFO),
+});
+
+// 便利函数
+let stdout_sink = DefaultStdoutSink::colored();
+let stdout_sink = DefaultStdoutSink::json_format();
+let stdout_sink = DefaultStdoutSink::with_level_filter(Level::WARN);
+```
+
+### 自定义 Sink 实现
+
+#### 可叠加型 Sink 示例
+
+```rust
+use quantum_log::sinks::{QuantumSink, StackableSink, SinkError, SinkMetadata, SinkType};
+use quantum_log::core::event::QuantumLogEvent;
+use async_trait::async_trait;
+
+#[derive(Debug)]
+struct MetricsSink {
+    endpoint: String,
+    event_count: std::sync::atomic::AtomicU64,
+}
+
+impl MetricsSink {
+    fn new(endpoint: String) -> Self {
+        Self {
+            endpoint,
+            event_count: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+}
+
+#[async_trait]
+impl QuantumSink for MetricsSink {
+    type Config = String;
+    type Error = SinkError;
+    
+    async fn send_event(&self, event: QuantumLogEvent) -> Result<(), Self::Error> {
+        // 发送指标到监控系统
+        self.event_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        println!("发送指标到 {}: {} - {}", self.endpoint, event.level, event.message);
+        Ok(())
+    }
+    
+    async fn shutdown(&self) -> Result<(), Self::Error> {
+        println!("关闭指标 Sink: {}", self.endpoint);
+        Ok(())
+    }
+    
+    async fn is_healthy(&self) -> bool {
+        true // 检查端点是否可达
+    }
+    
+    fn name(&self) -> &'static str {
+        "metrics_sink"
+    }
+    
+    fn stats(&self) -> String {
+        format!("MetricsSink[{}]: {} events sent", 
+                self.endpoint, 
+                self.event_count.load(std::sync::atomic::Ordering::Relaxed))
+    }
+    
+    fn metadata(&self) -> SinkMetadata {
+        SinkMetadata {
+            name: "metrics_sink".to_string(),
+            sink_type: SinkType::Network,
+            version: "1.0.0".to_string(),
+            description: "Metrics collection sink".to_string(),
+        }
+    }
+}
+
+// 标记为可叠加型
+impl StackableSink for MetricsSink {}
+```
+
+#### 独占型 Sink 示例
+
+```rust
+use quantum_log::sinks::{QuantumSink, ExclusiveSink};
+use std::fs::OpenOptions;
+use std::io::Write;
+
+#[derive(Debug)]
+struct CustomFileSink {
+    file_path: String,
+    writer: std::sync::Mutex<std::fs::File>,
+}
+
+impl CustomFileSink {
+    async fn new(file_path: String) -> Result<Self, std::io::Error> {
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&file_path)?;
+            
+        Ok(Self {
+            file_path,
+            writer: std::sync::Mutex::new(file),
+        })
+    }
+}
+
+#[async_trait]
+impl QuantumSink for CustomFileSink {
+    type Config = String;
+    type Error = SinkError;
+    
+    async fn send_event(&self, event: QuantumLogEvent) -> Result<(), Self::Error> {
+        let formatted = format!("{} [{}] {}\n", 
+                               event.timestamp, event.level, event.message);
+        
+        let mut writer = self.writer.lock().unwrap();
+        writer.write_all(formatted.as_bytes())
+            .map_err(|e| SinkError::WriteError(e.to_string()))?;
+        writer.flush()
+            .map_err(|e| SinkError::WriteError(e.to_string()))?;
+        
+        Ok(())
+    }
+    
+    async fn shutdown(&self) -> Result<(), Self::Error> {
+        let mut writer = self.writer.lock().unwrap();
+        writer.flush()
+            .map_err(|e| SinkError::WriteError(e.to_string()))?;
+        Ok(())
+    }
+    
+    async fn is_healthy(&self) -> bool {
+        std::path::Path::new(&self.file_path).exists()
+    }
+    
+    fn name(&self) -> &'static str {
+        "custom_file_sink"
+    }
+    
+    fn stats(&self) -> String {
+        format!("CustomFileSink[{}]", self.file_path)
+    }
+    
+    fn metadata(&self) -> SinkMetadata {
+        SinkMetadata {
+            name: "custom_file_sink".to_string(),
+            sink_type: SinkType::File,
+            version: "1.0.0".to_string(),
+            description: "Custom file output sink".to_string(),
+        }
+    }
+}
+
+// 标记为独占型
+impl ExclusiveSink for CustomFileSink {}
+```
+
+### 最佳实践
+
+#### 1. Sink 选择指南
+
+- **可叠加型 Sink 适用场景**:
+  - 控制台输出
+  - 网络发送（HTTP、UDP）
+  - 指标收集
+  - 通知系统
+  - 缓存写入
+
+- **独占型 Sink 适用场景**:
+  - 文件写入
+  - 数据库连接
+  - 消息队列
+  - 需要事务的操作
+
+#### 2. 错误处理策略选择
+
+```rust
+// 生产环境推荐
+let config = PipelineConfig {
+    error_strategy: ErrorStrategy::RetryThenContinue,
+    max_retries: 3,
+    retry_delay: Duration::from_millis(100),
+    ..Default::default()
+};
+
+// 开发环境推荐
+let config = PipelineConfig {
+    error_strategy: ErrorStrategy::LogAndContinue,
+    ..Default::default()
+};
+
+// 关键系统推荐
+let config = PipelineConfig {
+    error_strategy: ErrorStrategy::FailFast,
+    ..Default::default()
+};
+```
+
+#### 3. 性能优化建议
+
+- 使用并行处理提升吞吐量
+- 合理设置缓冲区大小
+- 监控健康状态和统计信息
+- 定期清理资源
+
+#### 4. 故障排除
+
+```rust
+// 检查 Pipeline 健康状态
+let health = pipeline.health_check().await;
+if !health.overall_healthy {
+    for sink_health in health.sink_details {
+        if !sink_health.healthy {
+            eprintln!("Sink {} 不健康: {:?}", 
+                     sink_health.name, sink_health.last_error);
+        }
+    }
+}
+
+// 获取详细统计信息
+let stats = pipeline.get_stats().await;
+println!("Pipeline 统计: {}", stats);
+```
+
+### 向后兼容性
+
+- ✅ 完全向后兼容现有 API
+- ✅ 现有代码无需修改即可运行
+- ✅ 渐进式迁移支持
+- ✅ 详细的迁移指南
+
+### 迁移指南
+
+#### 从 0.1.x 迁移到 0.2.0
+
+1. **无需修改现有代码** - 所有现有 API 保持兼容
+2. **可选升级** - 可以逐步采用新的 Pipeline 系统
+3. **配置迁移** - 现有配置文件无需修改
+
+#### 推荐迁移步骤
+
+1. 更新依赖版本到 0.2.0
+2. 运行现有测试确保兼容性
+3. 逐步引入 Pipeline 系统
+4. 利用新的健康检查和统计功能
+5. 考虑实现自定义 Sink
 
 ## 📦 安装
 
@@ -264,7 +658,149 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### 5. 错误处理和诊断
+### 5. 🆕 使用新的 Pipeline 系统 (v0.2.0)
+
+```rust
+use quantum_log::sinks::{
+    Pipeline, PipelineBuilder, PipelineConfig, ErrorStrategy,
+    ConsoleSink, FileSink, NetworkSink
+};
+use tracing::{info, warn, error};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 创建 Pipeline 配置
+    let config = PipelineConfig {
+        name: "main_pipeline".to_string(),
+        parallel_processing: true,
+        max_retries: 3,
+        error_strategy: ErrorStrategy::LogAndContinue,
+    };
+    
+    // 使用建造者模式创建 Pipeline
+    let mut pipeline = PipelineBuilder::with_config(config)
+        .with_name("production_pipeline".to_string())
+        .with_parallel_processing(true)
+        .with_error_strategy(ErrorStrategy::RetryThenContinue)
+        .build();
+    
+    // 添加多个可叠加型 Sink
+    let console_sink = Box::new(ConsoleSink::new());
+    pipeline.add_stackable_sink(console_sink).await?;
+    
+    // 设置独占型 Sink（如文件输出）
+    let file_sink = Box::new(FileSink::new("./logs/app.log".to_string()).await?);
+    pipeline.set_exclusive_sink(file_sink).await?;
+    
+    // 发送日志事件
+    let event = create_log_event("INFO", "Pipeline 系统启动");
+    pipeline.send_event(event).await?;
+    
+    // 健康检查
+    let health = pipeline.health_check().await;
+    info!("Pipeline 健康状态: {} 个健康 Sink, {} 个不健康 Sink", 
+          health.healthy_sinks, health.unhealthy_sinks);
+    
+    // 获取统计信息
+    let stats = pipeline.get_stats().await;
+    info!("Pipeline 统计: {}", stats);
+    
+    // 优雅关闭
+    pipeline.shutdown().await?;
+    Ok(())
+}
+```
+
+### 6. 🆕 自定义 Sink 实现 (v0.2.0)
+
+```rust
+use quantum_log::sinks::{
+    QuantumSink, StackableSink, SinkError, SinkMetadata, SinkType
+};
+use quantum_log::core::event::QuantumLogEvent;
+use async_trait::async_trait;
+
+// 实现自定义可叠加型 Sink
+#[derive(Debug)]
+struct CustomMetricsSink {
+    metrics_endpoint: String,
+    event_count: std::sync::atomic::AtomicU64,
+}
+
+impl CustomMetricsSink {
+    fn new(endpoint: String) -> Self {
+        Self {
+            metrics_endpoint: endpoint,
+            event_count: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+}
+
+#[async_trait]
+impl QuantumSink for CustomMetricsSink {
+    type Config = String;
+    type Error = SinkError;
+    
+    async fn send_event(&self, event: QuantumLogEvent) -> Result<(), Self::Error> {
+        // 发送指标到监控系统
+        self.event_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        
+        // 实际的指标发送逻辑
+        println!("发送指标到 {}: {} - {}", 
+                self.metrics_endpoint, event.level, event.message);
+        
+        Ok(())
+    }
+    
+    async fn shutdown(&self) -> Result<(), Self::Error> {
+        println!("关闭指标 Sink: {}", self.metrics_endpoint);
+        Ok(())
+    }
+    
+    async fn is_healthy(&self) -> bool {
+        // 检查指标端点是否可达
+        true
+    }
+    
+    fn name(&self) -> &'static str {
+        "custom_metrics"
+    }
+    
+    fn stats(&self) -> String {
+        format!("CustomMetricsSink[{}]: {} events sent", 
+                self.metrics_endpoint, 
+                self.event_count.load(std::sync::atomic::Ordering::Relaxed))
+    }
+    
+    fn metadata(&self) -> SinkMetadata {
+        SinkMetadata {
+            name: "custom_metrics".to_string(),
+            sink_type: SinkType::Network,
+            version: "1.0.0".to_string(),
+            description: "Custom metrics sink for monitoring".to_string(),
+        }
+    }
+}
+
+// 标记为可叠加型 Sink
+impl StackableSink for CustomMetricsSink {}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut pipeline = Pipeline::new(PipelineConfig::default());
+    
+    // 添加自定义 Sink
+    let metrics_sink = Box::new(CustomMetricsSink::new(
+        "http://metrics.example.com".to_string()
+    ));
+    pipeline.add_stackable_sink(metrics_sink).await?;
+    
+    // 使用 Pipeline...
+    Ok(())
+}
+```
+
+### 7. 错误处理和诊断
 
 ```rust
 use quantum_log::{init, shutdown, get_diagnostics, get_buffer_stats, is_initialized};

@@ -1,6 +1,8 @@
 use crate::config::StdoutConfig;
 use crate::core::event::{ContextInfo, QuantumLogEvent};
 use crate::error::QuantumLogError;
+use crate::sinks::traits::{QuantumSink, StackableSink, SinkError};
+use async_trait::async_trait;
 use tracing::Level;
 
 /// A sink that outputs log events to stdout
@@ -30,7 +32,7 @@ impl StdoutSink {
     }
 
     /// Sends an event to the stdout sink
-    pub async fn send_event(
+    pub async fn send_event_internal(
         &self,
         event: QuantumLogEvent,
         _strategy: &crate::config::BackpressureStrategy,
@@ -169,6 +171,8 @@ mod tests {
             file: Some("test.rs".to_string()),
             line: Some(42),
             module_path: Some("test::module".to_string()),
+            thread_name: Some("test-thread".to_string()),
+            thread_id: "test-thread-id".to_string(),
             context: context,
         }
     }
@@ -259,7 +263,7 @@ mod tests {
         });
         let event = create_test_event();
         let strategy = crate::config::BackpressureStrategy::Block;
-        let result = sink.send_event(event, &strategy).await;
+        let result = sink.send_event(event).await;
         assert!(result.is_ok());
     }
 
@@ -277,3 +281,58 @@ mod tests {
         assert!(result.is_ok());
     }
 }
+
+// 实现新的统一 Sink trait
+#[async_trait]
+impl QuantumSink for StdoutSink {
+    type Config = crate::config::StdoutConfig;
+    type Error = SinkError;
+
+    async fn send_event(&self, event: QuantumLogEvent) -> std::result::Result<(), Self::Error> {
+        let strategy = crate::config::BackpressureStrategy::Block;
+        self.send_event_internal(event, &strategy).await
+            .map_err(|e| match e {
+                QuantumLogError::ChannelError(msg) => SinkError::Generic(msg),
+                QuantumLogError::ConfigError(msg) => SinkError::Config(msg),
+                QuantumLogError::IoError { source } => SinkError::Io(source),
+                _ => SinkError::Generic(e.to_string()),
+            })
+    }
+
+    async fn shutdown(&self) -> std::result::Result<(), Self::Error> {
+        self.clone().shutdown().await
+            .map_err(|e| SinkError::Generic(e.to_string()))
+    }
+
+    async fn is_healthy(&self) -> bool {
+        true // StdoutSink 总是健康的
+    }
+
+    fn name(&self) -> &'static str {
+        "stdout"
+    }
+
+    fn stats(&self) -> String {
+        format!(
+            "StdoutSink: colored={}, include_context={}",
+            self.colored,
+            self.include_context
+        )
+    }
+
+    fn metadata(&self) -> crate::sinks::traits::SinkMetadata {
+        crate::sinks::traits::SinkMetadata {
+            name: "stdout".to_string(),
+            sink_type: crate::sinks::traits::SinkType::Exclusive,
+            enabled: true,
+            description: Some(format!(
+                "Standard output sink with colored={}, include_context={}",
+                self.colored,
+                self.include_context
+            )),
+        }
+    }
+}
+
+// 标记为可叠加型 sink
+impl StackableSink for StdoutSink {}

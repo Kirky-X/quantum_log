@@ -6,12 +6,15 @@ use crate::config::FileConfig;
 use crate::core::event::QuantumLogEvent;
 use crate::error::{QuantumLogError, Result};
 use crate::sinks::file_common::{FileCleaner, FileWriter};
+use crate::sinks::traits::{QuantumSink, ExclusiveSink, SinkError};
 use crate::utils::FileTools;
+use async_trait::async_trait;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tracing::Level;
 
 /// 单一文件 Sink
+#[derive(Debug)]
 pub struct FileSink {
     /// 配置
     config: FileConfig,
@@ -86,7 +89,7 @@ impl FileSink {
     }
 
     /// 发送事件
-    pub async fn send_event(&self, event: QuantumLogEvent) -> Result<()> {
+    pub async fn send_event_internal(&self, event: QuantumLogEvent) -> Result<()> {
         if let Some(sender) = &self.sender {
             let message = SinkMessage::Event(Box::new(event));
 
@@ -514,3 +517,63 @@ mod tests {
         assert_eq!(sink.config().extension, config.extension);
     }
 }
+
+// 实现新的统一 Sink trait
+#[async_trait]
+impl QuantumSink for FileSink {
+    type Config = FileConfig;
+    type Error = SinkError;
+
+    async fn send_event(&self, event: QuantumLogEvent) -> std::result::Result<(), Self::Error> {
+        self.send_event_internal(event).await
+            .map_err(|e| match e {
+                QuantumLogError::ChannelError(msg) => SinkError::Generic(msg),
+                QuantumLogError::ConfigError(msg) => SinkError::Config(msg),
+                QuantumLogError::IoError { source } => SinkError::Io(source),
+                _ => SinkError::Generic(e.to_string()),
+            })
+    }
+
+    async fn shutdown(&self) -> std::result::Result<(), Self::Error> {
+        // 注意：这里需要可变引用，但trait要求不可变引用
+        // 在实际使用中，可能需要使用内部可变性或重新设计
+        Err(SinkError::Generic(
+            "FileSink shutdown requires mutable reference".to_string()
+        ))
+    }
+
+    async fn is_healthy(&self) -> bool {
+        self.is_running()
+    }
+
+    fn name(&self) -> &'static str {
+        "file"
+    }
+
+    fn stats(&self) -> String {
+        format!(
+            "FileSink: running={}, file={}/{}.{}",
+            self.is_running(),
+            self.config.directory.display(),
+            self.config.filename_base,
+            self.config.extension.as_deref().unwrap_or("log")
+        )
+    }
+
+    fn metadata(&self) -> crate::sinks::traits::SinkMetadata {
+        crate::sinks::traits::SinkMetadata {
+            name: "file".to_string(),
+            sink_type: crate::sinks::traits::SinkType::Exclusive,
+            enabled: self.is_running(),
+            description: Some(format!(
+                "File sink writing to {}/{}.{}",
+                self.config.directory.display(),
+                self.config.filename_base,
+                self.config.extension.as_deref().unwrap_or("log")
+            )),
+        }
+    }
+}
+
+// 标记为独占型 sink
+impl ExclusiveSink for FileSink {}

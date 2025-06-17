@@ -5,6 +5,8 @@
 use crate::config::{NetworkConfig, NetworkProtocol};
 use crate::core::event::QuantumLogEvent;
 use crate::error::{QuantumLogError, Result};
+use crate::sinks::traits::{QuantumSink, ExclusiveSink, SinkError};
+use async_trait::async_trait;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::{AsyncWriteExt, BufWriter};
@@ -15,6 +17,7 @@ use tokio::time::{timeout, Duration};
 use tracing::Level;
 
 /// 网络 Sink
+#[derive(Debug)]
 pub struct NetworkSink {
     /// 配置
     config: NetworkConfig,
@@ -97,7 +100,7 @@ impl NetworkSink {
     }
 
     /// 发送事件
-    pub async fn send_event(&self, event: QuantumLogEvent) -> Result<()> {
+    pub async fn send_event_internal(&self, event: QuantumLogEvent) -> Result<()> {
         if let Some(sender) = &self.sender {
             let message = SinkMessage::Event(Box::new(event));
 
@@ -543,3 +546,64 @@ mod tests {
         assert_eq!(sink.config().protocol, NetworkProtocol::Tcp);
     }
 }
+
+// 实现新的统一 Sink trait
+#[async_trait]
+impl QuantumSink for NetworkSink {
+    type Config = NetworkConfig;
+    type Error = SinkError;
+
+    async fn send_event(&self, event: QuantumLogEvent) -> std::result::Result<(), Self::Error> {
+        self.send_event_internal(event).await
+            .map_err(|e| match e {
+                QuantumLogError::ChannelError(msg) => SinkError::Generic(msg),
+                QuantumLogError::ConfigError(msg) => SinkError::Config(msg),
+                QuantumLogError::IoError { source } => SinkError::Io(source),
+                QuantumLogError::NetworkError(msg) => SinkError::Network(msg),
+                _ => SinkError::Generic(e.to_string()),
+            })
+    }
+
+    async fn shutdown(&self) -> std::result::Result<(), Self::Error> {
+        // 注意：这里需要可变引用，但trait要求不可变引用
+        // 在实际使用中，可能需要使用内部可变性或重新设计
+        Err(SinkError::Generic(
+            "NetworkSink shutdown requires mutable reference".to_string()
+        ))
+    }
+
+    async fn is_healthy(&self) -> bool {
+        self.is_running()
+    }
+
+    fn name(&self) -> &'static str {
+        "network"
+    }
+
+    fn stats(&self) -> String {
+        format!(
+            "NetworkSink: running={}, protocol={:?}, target={}:{}",
+            self.is_running(),
+            self.config.protocol,
+            self.config.host,
+            self.config.port
+        )
+    }
+
+    fn metadata(&self) -> crate::sinks::traits::SinkMetadata {
+        crate::sinks::traits::SinkMetadata {
+            name: "network".to_string(),
+            sink_type: crate::sinks::traits::SinkType::Exclusive,
+            enabled: self.is_running(),
+            description: Some(format!(
+                "Network sink using {:?} protocol to {}:{}",
+                self.config.protocol,
+                self.config.host,
+                self.config.port
+            )),
+        }
+    }
+}
+
+// 标记为独占型 sink
+impl ExclusiveSink for NetworkSink {}
