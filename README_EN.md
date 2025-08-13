@@ -32,7 +32,7 @@ tracing = "0.1"
 
 # Optional features
 [dependencies.quantum_log]
-version = "0.1.0"
+version = "0.3.0"
 features = ["database", "mpi"]  # Enable database and MPI support
 ```
 

@@ -1,0 +1,6 @@
+# Project-specific ignores
+target/
+.serena/
+.trae/
+.vscode/
+.idea/

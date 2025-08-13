@@ -426,7 +426,7 @@ tracing = "0.1"
 
 # 可选功能
 [dependencies.quantum_log]
-version = "0.1.0"
+version = "0.3.0"
 features = ["database", "mpi"]  # 启用数据库和 MPI 支持
 ```
 
