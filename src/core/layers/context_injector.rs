@@ -111,7 +111,7 @@ where
         // 这里我们使用 event.record() 来记录上下文信息
         // 但由于 tracing 的限制，我们需要在更高层次处理这个逻辑
 
-        // 注意：实际的上下文注入会在 FormatLayer 或 DispatchLayer 中进行
+        // 注意：实际的上下文注入会在 FormatterLayer 或 DispatchLayer 中进行
         // 这里主要是为了展示架构设计
 
         let _ = event; // 避免未使用警告

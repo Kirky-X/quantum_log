@@ -6,7 +6,7 @@ use crate::config::RollingFileConfig;
 use crate::core::event::QuantumLogEvent;
 use crate::error::{QuantumLogError, Result};
 use crate::sinks::file_common::{FileCleaner, FilePathGenerator, FileWriter};
-use crate::sinks::traits::{QuantumSink, ExclusiveSink, SinkError};
+use crate::sinks::traits::{ExclusiveSink, QuantumSink, SinkError};
 use crate::utils::FileTools;
 use async_trait::async_trait;
 
@@ -642,7 +642,7 @@ impl QuantumSink for RollingFileSink {
         // 注意：这里需要可变引用，但trait要求不可变引用
         // 在实际使用中，可能需要使用内部可变性或重新设计
         Err(SinkError::Generic(
-            "RollingFileSink shutdown requires mutable reference".to_string()
+            "RollingFileSink shutdown requires mutable reference".to_string(),
         ))
     }
 

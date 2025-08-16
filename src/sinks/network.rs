@@ -5,7 +5,7 @@
 use crate::config::{NetworkConfig, NetworkProtocol};
 use crate::core::event::QuantumLogEvent;
 use crate::error::{QuantumLogError, Result};
-use crate::sinks::traits::{QuantumSink, ExclusiveSink, SinkError};
+use crate::sinks::traits::{ExclusiveSink, QuantumSink, SinkError};
 use async_trait::async_trait;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -354,7 +354,7 @@ mod tests {
     use super::*;
     use crate::config::OutputFormat;
     use crate::core::event::ContextInfo;
-    
+
     use tokio::net::{TcpListener, UdpSocket};
     use tracing::Level;
 
@@ -554,21 +554,20 @@ impl QuantumSink for NetworkSink {
     type Error = SinkError;
 
     async fn send_event(&self, event: QuantumLogEvent) -> std::result::Result<(), Self::Error> {
-        self.send_event_internal(event).await
-            .map_err(|e| match e {
-                QuantumLogError::ChannelError(msg) => SinkError::Generic(msg),
-                QuantumLogError::ConfigError(msg) => SinkError::Config(msg),
-                QuantumLogError::IoError { source } => SinkError::Io(source),
-                QuantumLogError::NetworkError(msg) => SinkError::Network(msg),
-                _ => SinkError::Generic(e.to_string()),
-            })
+        self.send_event_internal(event).await.map_err(|e| match e {
+            QuantumLogError::ChannelError(msg) => SinkError::Generic(msg),
+            QuantumLogError::ConfigError(msg) => SinkError::Config(msg),
+            QuantumLogError::IoError { source } => SinkError::Io(source),
+            QuantumLogError::NetworkError(msg) => SinkError::Network(msg),
+            _ => SinkError::Generic(e.to_string()),
+        })
     }
 
     async fn shutdown(&self) -> std::result::Result<(), Self::Error> {
         // 注意：这里需要可变引用，但trait要求不可变引用
         // 在实际使用中，可能需要使用内部可变性或重新设计
         Err(SinkError::Generic(
-            "NetworkSink shutdown requires mutable reference".to_string()
+            "NetworkSink shutdown requires mutable reference".to_string(),
         ))
     }
 
@@ -597,9 +596,7 @@ impl QuantumSink for NetworkSink {
             enabled: self.is_running(),
             description: Some(format!(
                 "Network sink using {:?} protocol to {}:{}",
-                self.config.protocol,
-                self.config.host,
-                self.config.port
+                self.config.protocol, self.config.host, self.config.port
             )),
         }
     }

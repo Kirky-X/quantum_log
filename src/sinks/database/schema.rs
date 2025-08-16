@@ -32,9 +32,8 @@ diesel::table! {
 /// 为不同数据库类型提供特定的 SQL 类型映射
 #[cfg(feature = "postgres")]
 mod postgres_types {
-    
 
-    /// PostgreSQL 特定的表定义
+    // PostgreSQL 特定的表定义
     diesel::table! {
         use diesel::sql_types::*;
         use diesel::pg::sql_types::*;
@@ -64,9 +63,8 @@ pub use self::quantum_logs::dsl::*;
 
 #[cfg(feature = "mysql")]
 mod mysql_types {
-    
 
-    /// MySQL 特定的表定义
+    // MySQL 特定的表定义
     diesel::table! {
         use diesel::sql_types::*;
 
@@ -93,9 +91,8 @@ mod mysql_types {
 
 #[cfg(feature = "sqlite")]
 mod sqlite_types {
-    
 
-    /// SQLite 特定的表定义
+    // SQLite 特定的表定义
     diesel::table! {
         use diesel::sql_types::*;
 
@@ -204,7 +201,6 @@ mod tests {
     fn test_table_definition_compiles() {
         // 这个测试确保表定义能够编译通过
         // 实际的表结构验证将在集成测试中进行
-        
 
         // 测试表名是否正确
         let table_name = "quantum_logs";

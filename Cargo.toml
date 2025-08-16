@@ -103,3 +103,6 @@ dynamic_mpi = ["libloading"]
 sqlite = ["database", "diesel/sqlite", "libsqlite3-sys/bundled"]
 postgres = ["database", "diesel/postgres", "pq-sys/bundled", "openssl-sys/vendored"]
 mysql = ["database", "diesel/mysql", "mysqlclient-sys/bundled", "openssl-sys/vendored"]
+[[bin]]
+name = "test_examples"
+path = "test/test_examples.rs"

@@ -5,7 +5,7 @@
 use crate::config::StdoutConfig;
 use crate::core::event::QuantumLogEvent;
 use crate::error::{QuantumLogError, Result};
-use crate::sinks::traits::{QuantumSink, StackableSink, SinkError};
+use crate::sinks::traits::{QuantumSink, SinkError, StackableSink};
 use async_trait::async_trait;
 
 use std::io::{self, Write};
@@ -77,8 +77,11 @@ impl ConsoleSink {
 
     /// 发送事件（阻塞）
     pub async fn send_event_internal(&self, event: QuantumLogEvent) -> Result<()> {
-        let sender_guard = self.sender.lock().unwrap();
-        if let Some(ref sender) = *sender_guard {
+        let sender_opt = {
+            let sender_guard = self.sender.lock().unwrap();
+            sender_guard.as_ref().cloned()
+        };
+        if let Some(sender) = sender_opt {
             sender
                 .send(SinkMessage::Event(Box::new(event)))
                 .map_err(|_| {
@@ -94,8 +97,11 @@ impl ConsoleSink {
 
     /// 尝试发送事件（非阻塞）
     pub fn try_send_event(&self, event: QuantumLogEvent) -> Result<()> {
-        let sender_guard = self.sender.lock().unwrap();
-        if let Some(ref sender) = *sender_guard {
+        let sender_opt = {
+            let sender_guard = self.sender.lock().unwrap();
+            sender_guard.as_ref().cloned()
+        };
+        if let Some(sender) = sender_opt {
             sender
                 .send(SinkMessage::Event(Box::new(event)))
                 .map_err(|_| {
@@ -115,7 +121,7 @@ impl ConsoleSink {
             let mut sender_guard = self.sender.lock().unwrap();
             sender_guard.take()
         };
-        
+
         if let Some(sender) = sender {
             let (response_sender, response_receiver) = oneshot::channel();
 
@@ -136,7 +142,7 @@ impl ConsoleSink {
                 let mut handle_guard = self.handle.lock().unwrap();
                 handle_guard.take()
             };
-            
+
             if let Some(handle) = handle {
                 let _ = handle.await;
             }
@@ -558,23 +564,23 @@ impl QuantumSink for ConsoleSink {
     type Error = SinkError;
 
     async fn send_event(&self, event: QuantumLogEvent) -> std::result::Result<(), Self::Error> {
-        self.send_event_internal(event).await
-            .map_err(|e| match e {
-                QuantumLogError::ChannelError(msg) => SinkError::Generic(msg),
-                QuantumLogError::ConfigError(msg) => SinkError::Config(msg),
-                QuantumLogError::IoError { source } => SinkError::Io(source),
-                _ => SinkError::Generic(e.to_string()),
-            })
+        // 使用默认的 Block 背压策略，显式调用 StackableSink trait 方法避免与同名固有方法冲突
+        <ConsoleSink as StackableSink>::send_event_internal(
+            self,
+            &event,
+            crate::config::BackpressureStrategy::Block,
+        )
+        .await
     }
 
     async fn shutdown(&self) -> std::result::Result<(), Self::Error> {
-        self.shutdown().await
-            .map_err(|e| match e {
-                QuantumLogError::ChannelError(msg) => SinkError::Generic(msg),
-                QuantumLogError::ConfigError(msg) => SinkError::Config(msg),
-                QuantumLogError::IoError { source } => SinkError::Io(source),
-                _ => SinkError::Generic(e.to_string()),
-            })
+        // 显式调用固有方法以避免与当前 trait 方法名冲突而导致递归
+        ConsoleSink::shutdown(self).await.map_err(|e| match e {
+            QuantumLogError::ChannelError(msg) => SinkError::Generic(msg),
+            QuantumLogError::ConfigError(msg) => SinkError::Config(msg),
+            QuantumLogError::IoError { source } => SinkError::Io(source),
+            _ => SinkError::Generic(e.to_string()),
+        })
     }
 
     async fn is_healthy(&self) -> bool {
@@ -598,13 +604,49 @@ impl QuantumSink for ConsoleSink {
             name: "console".to_string(),
             sink_type: crate::sinks::traits::SinkType::Stackable,
             enabled: self.is_running(),
-            description: Some(format!(
-                "Console sink with config: {:?}",
-                self.config
-            )),
+            description: Some(format!("Console sink with config: {:?}", self.config)),
         }
     }
 }
 
-// 标记为可叠加型 sink
-impl StackableSink for ConsoleSink {}
+// 标记为可叠加型 sink 并实现 send_event_internal
+#[async_trait]
+impl StackableSink for ConsoleSink {
+    async fn send_event_internal(
+        &self,
+        event: &QuantumLogEvent,
+        strategy: crate::config::BackpressureStrategy,
+    ) -> crate::sinks::traits::SinkResult<()> {
+        use crate::diagnostics::get_diagnostics_instance;
+        use tokio::time::{timeout, Duration};
+
+        let diagnostics = get_diagnostics_instance();
+
+        // 构建内部事件
+        let internal_event = event.clone();
+
+        // 根据背压策略处理事件发送
+        let send_fut = self.send_event_internal(internal_event);
+        let result = match strategy {
+            crate::config::BackpressureStrategy::Block => send_fut.await,
+            crate::config::BackpressureStrategy::Drop => {
+                match timeout(Duration::from_millis(100), send_fut).await {
+                    Ok(res) => res,
+                    Err(_) => return Err(crate::sinks::traits::SinkError::Backpressure),
+                }
+            }
+        };
+
+        match result {
+            Ok(()) => {
+                if let Some(d) = diagnostics {
+                    d.increment_events_processed();
+                }
+                Ok(())
+            }
+            Err(e) => Err(crate::sinks::traits::SinkError::Generic(e.to_string())),
+        }
+    }
+}
+
+// ... existing code ...

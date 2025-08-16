@@ -23,15 +23,20 @@ type MpiInitializedFn = unsafe extern "C" fn(*mut i32) -> i32;
 #[allow(dead_code)]
 type MpiCommRankFn = unsafe extern "C" fn(i32, *mut i32) -> i32;
 
-/// MPI 动态库句柄（仅在 dynamic_mpi feature 启用时使用）
+/// MPI 动态库句柄与函数（仅在 dynamic_mpi feature 启用时使用）
 #[cfg(feature = "dynamic_mpi")]
-static mut MPI_LIB: Option<libloading::Library> = None;
+use once_cell::sync::OnceCell;
 
-/// MPI 函数指针（仅在 dynamic_mpi feature 启用时使用）
 #[cfg(feature = "dynamic_mpi")]
-static mut MPI_INITIALIZED_FN: Option<MpiInitializedFn> = None;
+struct MpiDynamic {
+    #[allow(dead_code)]
+    lib: libloading::Library,
+    initialized: MpiInitializedFn,
+    comm_rank: MpiCommRankFn,
+}
+
 #[cfg(feature = "dynamic_mpi")]
-static mut MPI_COMM_RANK_FN: Option<MpiCommRankFn> = None;
+static MPI_DYNAMIC: OnceCell<MpiDynamic> = OnceCell::new();
 
 /// 编译时链接的 MPI 函数声明
 #[cfg(all(feature = "mpi_support", not(feature = "dynamic_mpi")))]
@@ -76,69 +81,78 @@ fn check_mpi_availability() -> bool {
 /// 动态加载 MPI 库（仅在 dynamic_mpi feature 启用时）
 #[cfg(feature = "dynamic_mpi")]
 fn load_mpi_library() -> Result<()> {
-    unsafe {
-        if MPI_LIB.is_some() {
-            return Ok(());
-        }
+    if MPI_DYNAMIC.get().is_some() {
+        return Ok(());
+    }
 
-        // 尝试加载不同的 MPI 库
-        let lib_names = [
-            "libmpi.so",    // Linux - OpenMPI/MPICH
-            "libmpi.so.12", // Linux - OpenMPI specific version
-            "libmpi.so.40", // Linux - MPICH specific version
-            "mpi.dll",      // Windows - Microsoft MPI
-            "libmpi.dylib", // macOS
-        ];
+    // 尝试加载不同的 MPI 库
+    let lib_names = [
+        "libmpi.so",    // Linux - OpenMPI/MPICH
+        "libmpi.so.12", // Linux - OpenMPI specific version
+        "libmpi.so.40", // Linux - MPICH specific version
+        "mpi.dll",      // Windows - Microsoft MPI
+        "libmpi.dylib", // macOS
+    ];
 
-        let mut last_error = None;
-        for lib_name in &lib_names {
-            match libloading::Library::new(lib_name) {
-                Ok(lib) => {
-                    // 尝试获取函数指针
-                    match (
-                        lib.get::<MpiInitializedFn>(b"MPI_Initialized"),
-                        lib.get::<MpiCommRankFn>(b"MPI_Comm_rank"),
-                    ) {
-                        (Ok(init_fn), Ok(rank_fn)) => {
-                            MPI_INITIALIZED_FN = Some(*init_fn);
-                            MPI_COMM_RANK_FN = Some(*rank_fn);
-                            MPI_LIB = Some(lib);
-                            return Ok(());
-                        }
-                        (Err(e), _) | (_, Err(e)) => {
-                            last_error = Some(QuantumLogError::LibLoadingError { source: e });
-                        }
+    let mut last_error = None;
+    for lib_name in &lib_names {
+        // 加载动态库与解析符号需要 unsafe，但不涉及全局可变状态
+        match unsafe { libloading::Library::new(lib_name) } {
+            Ok(lib) => {
+                // 在内层作用域解析符号并复制为裸函数指针，确保在移动 `lib` 前结束对其的借用
+                let resolved: std::result::Result<(MpiInitializedFn, MpiCommRankFn), libloading::Error> = {
+                    let init_res: std::result::Result<libloading::Symbol<MpiInitializedFn>, libloading::Error> =
+                        unsafe { lib.get(b"MPI_Initialized") };
+                    let rank_res: std::result::Result<libloading::Symbol<MpiCommRankFn>, libloading::Error> =
+                        unsafe { lib.get(b"MPI_Comm_rank") };
+                    match (init_res, rank_res) {
+                        (Ok(init_fn), Ok(rank_fn)) => Ok((*init_fn, *rank_fn)),
+                        (Err(e), _) | (_, Err(e)) => Err(e),
+                    }
+                };
+
+                match resolved {
+                    Ok((init_ptr, rank_ptr)) => {
+                        let dynamic = MpiDynamic {
+                            lib,
+                            initialized: init_ptr,
+                            comm_rank: rank_ptr,
+                        };
+                        let _ = MPI_DYNAMIC.set(dynamic);
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        last_error = Some(QuantumLogError::LibLoadingError { source: e });
                     }
                 }
-                Err(e) => {
-                    last_error = Some(QuantumLogError::LibLoadingError { source: e });
-                }
+            }
+            Err(e) => {
+                last_error = Some(QuantumLogError::LibLoadingError { source: e });
             }
         }
-
-        Err(last_error.unwrap_or_else(|| QuantumLogError::mpi("无法加载任何 MPI 库")))
     }
+
+    Err(last_error.unwrap_or_else(|| QuantumLogError::mpi("无法加载任何 MPI 库")))
 }
 
 /// 检查 MPI 是否已初始化
 fn check_mpi_initialized() -> Result<bool> {
     #[cfg(feature = "dynamic_mpi")]
     {
-        unsafe {
-            if let Some(mpi_initialized_fn) = MPI_INITIALIZED_FN {
-                let mut flag: i32 = 0;
-                let result = mpi_initialized_fn(&mut flag as *mut i32);
-                if result == MPI_SUCCESS {
-                    Ok(flag != 0)
-                } else {
-                    Err(QuantumLogError::mpi(format!(
-                        "MPI_Initialized 调用失败，错误码: {}",
-                        result
-                    )))
-                }
+        if let Some(dynlib) = MPI_DYNAMIC.get() {
+            let mut flag: i32 = 0;
+            // 调用外部函数指针需要 unsafe 块
+            let result = unsafe { (dynlib.initialized)(&mut flag as *mut i32) };
+            if result == MPI_SUCCESS {
+                Ok(flag != 0)
             } else {
-                Err(QuantumLogError::mpi("MPI_Initialized 函数未加载"))
+                Err(QuantumLogError::mpi(format!(
+                    "MPI_Initialized 调用失败，错误码: {}",
+                    result
+                )))
             }
+        } else {
+            Err(QuantumLogError::mpi("MPI_Initialized 函数未加载"))
         }
     }
     #[cfg(all(feature = "mpi_support", not(feature = "dynamic_mpi")))]
@@ -182,21 +196,20 @@ pub fn get_mpi_rank() -> Option<i32> {
 fn get_mpi_rank_internal() -> Result<i32> {
     #[cfg(feature = "dynamic_mpi")]
     {
-        unsafe {
-            if let Some(mpi_comm_rank_fn) = MPI_COMM_RANK_FN {
-                let mut rank: i32 = -1;
-                let result = mpi_comm_rank_fn(MPI_COMM_WORLD, &mut rank as *mut i32);
-                if result == MPI_SUCCESS {
-                    Ok(rank)
-                } else {
-                    Err(QuantumLogError::mpi(format!(
-                        "MPI_Comm_rank 调用失败，错误码: {}",
-                        result
-                    )))
-                }
+        if let Some(dynlib) = MPI_DYNAMIC.get() {
+            let mut rank: i32 = -1;
+            // 调用外部函数指针需要 unsafe 块
+            let result = unsafe { (dynlib.comm_rank)(MPI_COMM_WORLD, &mut rank as *mut i32) };
+            if result == MPI_SUCCESS {
+                Ok(rank)
             } else {
-                Err(QuantumLogError::mpi("MPI_Comm_rank 函数未加载"))
+                Err(QuantumLogError::mpi(format!(
+                    "MPI_Comm_rank 调用失败，错误码: {}",
+                    result
+                )))
             }
+        } else {
+            Err(QuantumLogError::mpi("MPI_Comm_rank 函数未加载"))
         }
     }
     #[cfg(all(feature = "mpi_support", not(feature = "dynamic_mpi")))]

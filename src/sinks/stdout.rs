@@ -1,8 +1,13 @@
-use crate::config::StdoutConfig;
+use crate::config::{BackpressureStrategy, StdoutConfig};
 use crate::core::event::{ContextInfo, QuantumLogEvent};
+use crate::diagnostics::get_diagnostics_instance;
 use crate::error::QuantumLogError;
-use crate::sinks::traits::{QuantumSink, StackableSink, SinkError};
+use crate::sinks::traits::{QuantumSink, SinkError, StackableSink};
 use async_trait::async_trait;
+use std::io::{self, Write};
+
+use std::time::Duration;
+use tokio::time::timeout;
 use tracing::Level;
 
 /// A sink that outputs log events to stdout
@@ -29,17 +34,6 @@ impl StdoutSink {
             colored,
             include_context,
         }
-    }
-
-    /// Sends an event to the stdout sink
-    pub async fn send_event_internal(
-        &self,
-        event: QuantumLogEvent,
-        _strategy: &crate::config::BackpressureStrategy,
-    ) -> Result<(), QuantumLogError> {
-        let formatted = self.format_event(&event);
-        println!("{}", formatted);
-        Ok(())
     }
 
     /// Shuts down the stdout sink
@@ -289,18 +283,15 @@ impl QuantumSink for StdoutSink {
     type Error = SinkError;
 
     async fn send_event(&self, event: QuantumLogEvent) -> std::result::Result<(), Self::Error> {
+        // Default to block strategy; Dispatcher may override by calling internal with specific strategy
         let strategy = crate::config::BackpressureStrategy::Block;
-        self.send_event_internal(event, &strategy).await
-            .map_err(|e| match e {
-                QuantumLogError::ChannelError(msg) => SinkError::Generic(msg),
-                QuantumLogError::ConfigError(msg) => SinkError::Config(msg),
-                QuantumLogError::IoError { source } => SinkError::Io(source),
-                _ => SinkError::Generic(e.to_string()),
-            })
+        StackableSink::send_event_internal(self, &event, strategy).await
     }
 
     async fn shutdown(&self) -> std::result::Result<(), Self::Error> {
-        self.clone().shutdown().await
+        self.clone()
+            .shutdown()
+            .await
             .map_err(|e| SinkError::Generic(e.to_string()))
     }
 
@@ -315,8 +306,7 @@ impl QuantumSink for StdoutSink {
     fn stats(&self) -> String {
         format!(
             "StdoutSink: colored={}, include_context={}",
-            self.colored,
-            self.include_context
+            self.colored, self.include_context
         )
     }
 
@@ -327,12 +317,76 @@ impl QuantumSink for StdoutSink {
             enabled: true,
             description: Some(format!(
                 "Standard output sink with colored={}, include_context={}",
-                self.colored,
-                self.include_context
+                self.colored, self.include_context
             )),
         }
     }
 }
 
 // 标记为可叠加型 sink
-impl StackableSink for StdoutSink {}
+#[async_trait]
+impl StackableSink for StdoutSink {
+    /// 内部事件发送方法，支持背压策略
+    async fn send_event_internal(
+        &self,
+        event: &QuantumLogEvent,
+        strategy: BackpressureStrategy,
+    ) -> Result<(), SinkError> {
+        // Get diagnostics instance
+        let diagnostics = get_diagnostics_instance().ok_or(SinkError::Io(io::Error::other(
+            "Diagnostics not initialized",
+        )))?;
+
+        // Attempt to send the event with timeout based on strategy
+        let result = match strategy {
+            BackpressureStrategy::Block => {
+                // Block until write succeeds
+                write_event_to_stdout(self, event).await
+            }
+            BackpressureStrategy::Drop => {
+                // Use a short timeout and drop if it fails
+                match timeout(
+                    Duration::from_millis(100),
+                    write_event_to_stdout(self, event),
+                )
+                .await
+                {
+                    Ok(result) => result,
+                    Err(_) => {
+                        // Timeout occurred, treat as backpressure
+                        return Err(SinkError::Backpressure);
+                    }
+                }
+            }
+        };
+
+        // Handle the result and update diagnostics
+        match result {
+            Ok(()) => {
+                diagnostics.increment_stdout_writes();
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
+    }
+}
+
+/// 将事件写入标准输出（辅助函数）
+async fn write_event_to_stdout(
+    sink: &StdoutSink,
+    event: &QuantumLogEvent,
+) -> Result<(), SinkError> {
+    let formatted = sink.format_event(event);
+    // Spawn blocking operation for stdout write
+    let result = tokio::task::spawn_blocking(move || {
+        io::stdout().write_all(formatted.as_bytes())?;
+        io::stdout().flush()
+    })
+    .await;
+
+    match result {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(io_err)) => Err(SinkError::Io(io_err)),
+        Err(join_err) => Err(SinkError::Io(io::Error::other(join_err.to_string()))),
+    }
+}

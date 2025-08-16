@@ -4,16 +4,16 @@
 //! 此模块提供了将日志写入各种数据库的功能，支持 SQLite、MySQL 和 PostgreSQL。
 //! 使用连接池和批量插入来优化性能。
 
+use async_trait::async_trait;
 use tokio::sync::mpsc;
 use tokio::time::{interval, Duration};
 use tracing::{debug, error, info, warn};
-use async_trait::async_trait;
 
 use crate::config::{DatabaseSinkConfig, DatabaseType};
 use crate::core::event::QuantumLogEvent;
 use crate::error::QuantumLogError;
-use crate::sinks::database::models::{NewQuantumLogEntry, LogBatch};
-use crate::sinks::traits::{QuantumSink, ExclusiveSink, SinkError, SinkMetadata, SinkType};
+use crate::sinks::database::models::{LogBatch, NewQuantumLogEntry};
+use crate::sinks::traits::{ExclusiveSink, QuantumSink, SinkError, SinkMetadata, SinkType};
 
 type Result<T> = std::result::Result<T, QuantumLogError>;
 
@@ -551,9 +551,9 @@ impl QuantumSink for DatabaseSink {
         #[cfg(feature = "database")]
         {
             let pool = self.pool.clone();
-            let result = tokio::task::spawn_blocking(move || {
-                Self::insert_batch_blocking(pool, entries)
-            }).await;
+            let result =
+                tokio::task::spawn_blocking(move || Self::insert_batch_blocking(pool, entries))
+                    .await;
 
             match result {
                 Ok(Ok(())) => Ok(()),

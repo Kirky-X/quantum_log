@@ -5,33 +5,39 @@
 //! 2. 设置条件编译标志
 //! 3. 链接必要的系统库
 
+use chrono::Utc;
 use std::env;
 use std::path::PathBuf;
-use chrono::Utc;
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
-    
+
     // 检查是否启用了 MPI 支持
     let mpi_support = cfg!(feature = "mpi_support");
     let dynamic_mpi = cfg!(feature = "dynamic_mpi");
-    
+
     if mpi_support {
         setup_mpi_support(dynamic_mpi);
     }
-    
+
     // 设置平台特定的配置
     setup_platform_specific();
-    
+
     // 输出构建信息
-    println!("cargo:rustc-env=QUANTUM_LOG_BUILD_TIME={}", Utc::now().to_rfc3339());
-    println!("cargo:rustc-env=QUANTUM_LOG_VERSION={}", env!("CARGO_PKG_VERSION"));
+    println!(
+        "cargo:rustc-env=QUANTUM_LOG_BUILD_TIME={}",
+        Utc::now().to_rfc3339()
+    );
+    println!(
+        "cargo:rustc-env=QUANTUM_LOG_VERSION={}",
+        env!("CARGO_PKG_VERSION")
+    );
 }
 
 /// 设置 MPI 支持
 fn setup_mpi_support(dynamic_mpi: bool) {
     println!("cargo:rustc-cfg=mpi_enabled");
-    
+
     if dynamic_mpi {
         // 动态加载 MPI
         println!("cargo:rustc-cfg=dynamic_mpi");
@@ -47,7 +53,7 @@ fn setup_dynamic_mpi() {
     // 对于动态加载，我们不需要在构建时链接 MPI
     // 只需要确保 libloading 依赖可用
     println!("cargo:rustc-cfg=mpi_dynamic");
-    
+
     // 检查常见的 MPI 库路径
     let mpi_paths = [
         "/usr/lib/x86_64-linux-gnu/openmpi/lib",
@@ -55,7 +61,7 @@ fn setup_dynamic_mpi() {
         "/opt/intel/oneapi/mpi/latest/lib",
         "/usr/local/lib",
     ];
-    
+
     for path in &mpi_paths {
         if std::path::Path::new(path).exists() {
             println!("cargo:rustc-env=MPI_LIB_PATH={}", path);
@@ -97,7 +103,7 @@ fn setup_static_mpi() {
             let mpi_path = PathBuf::from(mpi_home);
             let lib_path = mpi_path.join("lib");
             let include_path = mpi_path.join("include");
-            
+
             if lib_path.exists() && include_path.exists() {
                 println!("cargo:rustc-link-search=native={}", lib_path.display());
                 println!("cargo:rustc-link-lib=mpi");
@@ -114,7 +120,7 @@ fn setup_static_mpi() {
 /// 设置平台特定的配置
 fn setup_platform_specific() {
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
-    
+
     match target_os.as_str() {
         "linux" => {
             setup_linux_specific();
@@ -134,7 +140,7 @@ fn setup_platform_specific() {
 /// Linux 特定设置
 fn setup_linux_specific() {
     println!("cargo:rustc-cfg=target_linux");
-    
+
     // 检查 gettid 系统调用支持
     if let Ok(output) = std::process::Command::new("getconf")
         .arg("_POSIX_VERSION")
@@ -149,7 +155,7 @@ fn setup_linux_specific() {
             }
         }
     }
-    
+
     // 链接 pthread
     println!("cargo:rustc-link-lib=pthread");
 }
@@ -157,7 +163,7 @@ fn setup_linux_specific() {
 /// Windows 特定设置
 fn setup_windows_specific() {
     println!("cargo:rustc-cfg=target_windows");
-    
+
     // Windows API 库
     println!("cargo:rustc-link-lib=kernel32");
     println!("cargo:rustc-link-lib=user32");
@@ -167,25 +173,23 @@ fn setup_windows_specific() {
 /// macOS 特定设置
 fn setup_macos_specific() {
     println!("cargo:rustc-cfg=target_macos");
-    
+
     // macOS 系统框架
     println!("cargo:rustc-link-lib=framework=Foundation");
     println!("cargo:rustc-link-lib=framework=CoreFoundation");
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_version_info() {
         // 测试版本信息生成
         let version = env!("CARGO_PKG_VERSION");
         assert!(!version.is_empty());
     }
-    
+
     #[test]
     fn test_git_hash() {
         // 测试 Git 哈希获取（可能失败，这是正常的）

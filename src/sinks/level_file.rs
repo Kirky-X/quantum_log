@@ -6,7 +6,7 @@ use crate::config::LevelFileConfig;
 use crate::core::event::QuantumLogEvent;
 use crate::error::{QuantumLogError, Result};
 use crate::sinks::file_common::{FileCleaner, FilePathGenerator, FileWriter};
-use crate::sinks::traits::{QuantumSink, ExclusiveSink, SinkError};
+use crate::sinks::traits::{ExclusiveSink, QuantumSink, SinkError};
 use crate::utils::FileTools;
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -493,20 +493,19 @@ impl QuantumSink for LevelFileSink {
     type Error = SinkError;
 
     async fn send_event(&self, event: QuantumLogEvent) -> std::result::Result<(), Self::Error> {
-        self.send_event_internal(event).await
-            .map_err(|e| match e {
-                QuantumLogError::ChannelError(msg) => SinkError::Generic(msg),
-                QuantumLogError::ConfigError(msg) => SinkError::Config(msg),
-                QuantumLogError::IoError { source } => SinkError::Io(source),
-                _ => SinkError::Generic(e.to_string()),
-            })
+        self.send_event_internal(event).await.map_err(|e| match e {
+            QuantumLogError::ChannelError(msg) => SinkError::Generic(msg),
+            QuantumLogError::ConfigError(msg) => SinkError::Config(msg),
+            QuantumLogError::IoError { source } => SinkError::Io(source),
+            _ => SinkError::Generic(e.to_string()),
+        })
     }
 
     async fn shutdown(&self) -> std::result::Result<(), Self::Error> {
         // 注意：这里需要可变引用，但trait要求不可变引用
         // 在实际使用中，可能需要使用内部可变性或重新设计
         Err(SinkError::Generic(
-            "LevelFileSink shutdown requires mutable reference".to_string()
+            "LevelFileSink shutdown requires mutable reference".to_string(),
         ))
     }
 

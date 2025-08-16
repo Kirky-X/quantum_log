@@ -55,16 +55,14 @@ pub mod shutdown;
 pub mod sinks;
 pub mod utils;
 
-// 条件编译数据库功能
 #[cfg(feature = "database")]
 pub mod database {
     pub use crate::sinks::database::*;
 }
 
-// 重新导出主要类型
 pub use config::{
-    load_config_from_file, QuantumLogConfig, QuantumLoggerConfig,
-    BackpressureStrategy, StdoutConfig, OutputFormat
+    load_config_from_file, BackpressureStrategy, OutputFormat, QuantumLogConfig,
+    QuantumLoggerConfig, StdoutConfig,
 };
 pub use diagnostics::{get_diagnostics, DiagnosticsSnapshot};
 pub use error::{QuantumLogError, Result};
@@ -73,7 +71,6 @@ pub use shutdown::{
     ShutdownState,
 };
 
-// 重新导出核心功能
 pub use core::event::QuantumLogEvent;
 pub use core::subscriber::{BufferStats, QuantumLogSubscriber, QuantumLogSubscriberBuilder};
 
@@ -82,6 +79,8 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
+// Initialize diagnostics
+use crate::diagnostics::init_diagnostics;
 
 /// 库版本
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -115,6 +114,9 @@ pub static IS_QUANTUM_LOG_INITIALIZED: AtomicBool = AtomicBool::new(false);
 /// }
 /// ```
 pub async fn init() -> Result<()> {
+    // Ensure diagnostics subsystem is initialized early
+    let _ = init_diagnostics();
+
     let config = QuantumLogConfig {
         pre_init_stdout_enabled: true,
         stdout: Some(crate::config::StdoutConfig {
@@ -164,6 +166,9 @@ pub async fn init() -> Result<()> {
 /// }
 /// ```
 pub async fn init_with_config(config: QuantumLogConfig) -> Result<()> {
+    // Ensure diagnostics subsystem is initialized early
+    let _ = init_diagnostics();
+
     let mut subscriber = QuantumLogSubscriber::with_config(config)?;
 
     // 初始化订阅器
@@ -210,6 +215,9 @@ pub async fn init_with_builder<F>(
 where
     F: FnOnce(QuantumLogSubscriberBuilder) -> QuantumLogSubscriberBuilder,
 {
+    // Ensure diagnostics subsystem is initialized early
+    let _ = init_diagnostics();
+
     let builder = QuantumLogSubscriber::builder();
     let mut subscriber = builder_fn(builder).build()?;
 
@@ -392,6 +400,9 @@ impl ShutdownHandle {
 /// }
 /// ```
 pub async fn init_quantum_logger() -> Result<ShutdownHandle> {
+    // Ensure diagnostics subsystem is initialized early
+    let _ = init_diagnostics();
+
     // 检查是否已经初始化
     if IS_QUANTUM_LOG_INITIALIZED
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)

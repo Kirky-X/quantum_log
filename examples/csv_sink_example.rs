@@ -1,16 +1,18 @@
 //! CSV 输出管道示例
-//! 
+//!
 //! 这个示例演示如何实现一个自定义的 CSV 输出管道，将日志数据格式化为 CSV 格式并写入文件。
 //! 展示了 QuantumSink trait 的完整实现，包括异步处理、错误处理和资源管理。
 
+use async_trait::async_trait;
+use chrono;
 use quantum_log::{
     config::*,
-    core::event::{QuantumLogEvent, ContextInfo},
-    sinks::{
-        Pipeline, PipelineConfig, ErrorStrategy,
-        traits::{QuantumSink, StackableSink, SinkMetadata, SinkType, SinkError},
-    },
+    core::event::{ContextInfo, QuantumLogEvent},
     init_with_config, shutdown,
+    sinks::{
+        traits::{QuantumSink, SinkError, SinkMetadata, SinkType, StackableSink},
+        ErrorStrategy, Pipeline, PipelineConfig,
+    },
 };
 use std::{
     collections::HashMap,
@@ -19,13 +21,11 @@ use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
 };
-use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use tokio::time::{sleep, Duration};
-use tracing::{info, warn, error, Level};
+use tracing::{error, info, warn, Level};
 
 /// CSV 输出管道结构体
-/// 
+///
 /// 实现将日志事件格式化为 CSV 格式并写入文件的功能
 #[derive(Debug, Clone)]
 pub struct CsvSink {
@@ -43,13 +43,17 @@ pub struct CsvSink {
 
 impl CsvSink {
     /// 创建新的 CSV 输出管道
-    /// 
+    ///
     /// # 参数
-    /// 
+    ///
     /// * `file_path` - CSV 文件路径
     /// * `include_header` - 是否包含 CSV 表头
     /// * `delimiter` - 字段分隔符，默认为逗号
-    pub fn new<P: Into<PathBuf>>(file_path: P, include_header: bool, delimiter: Option<char>) -> Self {
+    pub fn new<P: Into<PathBuf>>(
+        file_path: P,
+        include_header: bool,
+        delimiter: Option<char>,
+    ) -> Self {
         Self {
             file_path: file_path.into(),
             writer: Arc::new(Mutex::new(None)),
@@ -61,16 +65,16 @@ impl CsvSink {
 
     /// 初始化文件写入器
     fn initialize_writer(&self) -> Result<(), SinkError> {
-        let mut writer_guard = self.writer.lock().map_err(|_| {
-            SinkError::Config("Failed to acquire writer lock".to_string())
-        })?;
+        let mut writer_guard = self
+            .writer
+            .lock()
+            .map_err(|_| SinkError::Config("Failed to acquire writer lock".to_string()))?;
 
         if writer_guard.is_none() {
             // 创建父目录（如果不存在）
             if let Some(parent) = self.file_path.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| {
-                    SinkError::Config(format!("Failed to create directory: {}", e))
-                })?;
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| SinkError::Config(format!("Failed to create directory: {}", e)))?;
             }
 
             // 打开文件进行追加写入
@@ -78,9 +82,7 @@ impl CsvSink {
                 .create(true)
                 .append(true)
                 .open(&self.file_path)
-                .map_err(|e| {
-                    SinkError::Config(format!("Failed to open CSV file: {}", e))
-                })?;
+                .map_err(|e| SinkError::Config(format!("Failed to open CSV file: {}", e)))?;
 
             let buf_writer = BufWriter::new(file);
             *writer_guard = Some(buf_writer);
@@ -95,17 +97,19 @@ impl CsvSink {
             return Ok(());
         }
 
-        let mut header_written = self.header_written.lock().map_err(|_| {
-            SinkError::Config("Failed to acquire header lock".to_string())
-        })?;
+        let mut header_written = self
+            .header_written
+            .lock()
+            .map_err(|_| SinkError::Config("Failed to acquire header lock".to_string()))?;
 
         if *header_written {
             return Ok(());
         }
 
-        let mut writer_guard = self.writer.lock().map_err(|_| {
-            SinkError::Config("Failed to acquire writer lock".to_string())
-        })?;
+        let mut writer_guard = self
+            .writer
+            .lock()
+            .map_err(|_| SinkError::Config("Failed to acquire writer lock".to_string()))?;
 
         if let Some(ref mut writer) = *writer_guard {
             let header = format!(
@@ -115,13 +119,11 @@ impl CsvSink {
                 self.delimiter, self.delimiter, self.delimiter
             );
 
-            writer.write_all(header.as_bytes()).map_err(|e| {
-                SinkError::Io(e)
-            })?;
+            writer
+                .write_all(header.as_bytes())
+                .map_err(|e| SinkError::Io(e))?;
 
-            writer.flush().map_err(|e| {
-                SinkError::Io(e)
-            })?;
+            writer.flush().map_err(|e| SinkError::Io(e))?;
 
             *header_written = true;
         }
@@ -131,7 +133,11 @@ impl CsvSink {
 
     /// 转义 CSV 字段中的特殊字符
     fn escape_csv_field(&self, field: &str) -> String {
-        if field.contains(self.delimiter) || field.contains('"') || field.contains('\n') || field.contains('\r') {
+        if field.contains(self.delimiter)
+            || field.contains('"')
+            || field.contains('\n')
+            || field.contains('\r')
+        {
             format!("\"{}\"", field.replace("\"", "\"\""))
         } else {
             field.to_string()
@@ -155,17 +161,28 @@ impl CsvSink {
 
         format!(
             "{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}",
-            timestamp, self.delimiter,
-            level.to_string(), self.delimiter,
-            target, self.delimiter,
-            message, self.delimiter,
-            file, self.delimiter,
-            line, self.delimiter,
-            module_path, self.delimiter,
-            thread_name, self.delimiter,
-            thread_id, self.delimiter,
-            process_id, self.delimiter,
-            hostname, self.delimiter,
+            timestamp,
+            self.delimiter,
+            level.to_string(),
+            self.delimiter,
+            target,
+            self.delimiter,
+            message,
+            self.delimiter,
+            file,
+            self.delimiter,
+            line,
+            self.delimiter,
+            module_path,
+            self.delimiter,
+            thread_name,
+            self.delimiter,
+            thread_id,
+            self.delimiter,
+            process_id,
+            self.delimiter,
+            hostname,
+            self.delimiter,
             username
         )
     }
@@ -179,7 +196,7 @@ impl QuantumSink for CsvSink {
     async fn send_event(&self, event: QuantumLogEvent) -> Result<(), Self::Error> {
         // 初始化写入器（如果尚未初始化）
         self.initialize_writer()?;
-        
+
         // 写入表头（如果需要且尚未写入）
         self.write_header()?;
 
@@ -187,18 +204,15 @@ impl QuantumSink for CsvSink {
         let csv_line = self.format_event_as_csv(&event);
 
         // 写入 CSV 行
-        let mut writer_guard = self.writer.lock().map_err(|_| {
-            SinkError::Config("Failed to acquire writer lock".to_string())
-        })?;
+        let mut writer_guard = self
+            .writer
+            .lock()
+            .map_err(|_| SinkError::Config("Failed to acquire writer lock".to_string()))?;
 
         if let Some(ref mut writer) = *writer_guard {
-            writeln!(writer, "{}", csv_line).map_err(|e| {
-                SinkError::Io(e)
-            })?;
+            writeln!(writer, "{}", csv_line).map_err(|e| SinkError::Io(e))?;
 
-            writer.flush().map_err(|e| {
-                SinkError::Io(e)
-            })?;
+            writer.flush().map_err(|e| SinkError::Io(e))?;
         }
 
         Ok(())
@@ -210,9 +224,7 @@ impl QuantumSink for CsvSink {
         })?;
 
         if let Some(ref mut writer) = *writer_guard {
-            writer.flush().map_err(|e| {
-                SinkError::Io(e)
-            })?;
+            writer.flush().map_err(|e| SinkError::Io(e))?;
         }
 
         *writer_guard = None;
@@ -222,7 +234,11 @@ impl QuantumSink for CsvSink {
     async fn is_healthy(&self) -> bool {
         // 检查文件路径是否可写
         if let Some(parent) = self.file_path.parent() {
-            parent.exists() && parent.metadata().map(|m| !m.permissions().readonly()).unwrap_or(false)
+            parent.exists()
+                && parent
+                    .metadata()
+                    .map(|m| !m.permissions().readonly())
+                    .unwrap_or(false)
         } else {
             true
         }
@@ -320,7 +336,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 创建 CSV sink
     let csv_sink = CsvSink::new("logs/output.csv", true, Some(','));
-    
+
     // 创建 Pipeline 来管理 CSV sink
     let pipeline_config = PipelineConfig {
         name: "csv_pipeline".to_string(),
@@ -328,13 +344,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_retries: 3,
         error_strategy: ErrorStrategy::LogAndContinue,
     };
-    
+
     let pipeline = Pipeline::new(pipeline_config);
-    
+
     // 添加 CSV sink 到 pipeline
     let metadata = csv_sink.metadata();
-    pipeline.add_stackable_sink(csv_sink.clone(), metadata).await?;
-    
+    pipeline
+        .add_stackable_sink(csv_sink.clone(), metadata)
+        .await?;
+
     println!("\n1. 测试 CSV sink 初始化");
     println!("CSV sink 名称: {}", csv_sink.name());
     println!("CSV sink 元数据: {:?}", csv_sink.metadata());
@@ -388,7 +406,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pipeline.shutdown().await?;
     csv_sink.shutdown().await?;
     shutdown().await?;
-    
+
     println!("\n=== CSV 输出管道示例完成 ===");
     println!("请检查 logs/output.csv 文件查看 CSV 格式的日志输出");
 
@@ -404,7 +422,7 @@ mod tests {
     async fn test_csv_sink_creation() {
         let temp_dir = tempdir().unwrap();
         let csv_path = temp_dir.path().join("test.csv");
-        
+
         let sink = CsvSink::new(csv_path, true, Some(','));
         assert_eq!(sink.name(), "csv_sink");
         assert_eq!(sink.metadata().sink_type, SinkType::Stackable);
@@ -414,14 +432,14 @@ mod tests {
     async fn test_csv_sink_send_event() {
         let temp_dir = tempdir().unwrap();
         let csv_path = temp_dir.path().join("test_event.csv");
-        
+
         let sink = CsvSink::new(&csv_path, true, Some(','));
         let event = create_test_event(Level::INFO, "测试消息");
-        
+
         assert!(sink.send_event(event).await.is_ok());
         assert!(sink.is_healthy().await);
         assert!(sink.shutdown().await.is_ok());
-        
+
         // 验证文件是否创建
         assert!(csv_path.exists());
     }
@@ -430,26 +448,29 @@ mod tests {
     async fn test_csv_sink_with_pipeline() {
         let temp_dir = tempdir().unwrap();
         let csv_path = temp_dir.path().join("test_pipeline.csv");
-        
+
         let sink = CsvSink::new(&csv_path, true, Some(','));
-        
+
         let config = PipelineConfig {
             name: "test_pipeline".to_string(),
             parallel_processing: false,
             max_retries: 2,
             error_strategy: ErrorStrategy::LogAndContinue,
         };
-        
+
         let pipeline = Pipeline::new(config);
         let metadata = sink.metadata();
-        pipeline.add_stackable_sink(sink.clone(), metadata).await.unwrap();
-        
+        pipeline
+            .add_stackable_sink(sink.clone(), metadata)
+            .await
+            .unwrap();
+
         let event = create_test_event(Level::INFO, "Pipeline 测试");
         assert!(pipeline.send_event(event).await.is_ok());
-        
+
         let health = pipeline.health_check().await;
         assert!(health.overall_healthy);
-        
+
         assert!(pipeline.shutdown().await.is_ok());
         assert!(sink.shutdown().await.is_ok());
     }

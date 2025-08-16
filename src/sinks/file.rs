@@ -6,22 +6,23 @@ use crate::config::FileConfig;
 use crate::core::event::QuantumLogEvent;
 use crate::error::{QuantumLogError, Result};
 use crate::sinks::file_common::{FileCleaner, FileWriter};
-use crate::sinks::traits::{QuantumSink, ExclusiveSink, SinkError};
+use crate::sinks::traits::{ExclusiveSink, QuantumSink, SinkError};
 use crate::utils::FileTools;
 use async_trait::async_trait;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tracing::Level;
+use std::sync::{Arc, Mutex};
 
 /// 单一文件 Sink
 #[derive(Debug)]
 pub struct FileSink {
     /// 配置
     config: FileConfig,
-    /// 事件发送器
-    sender: Option<mpsc::Sender<SinkMessage>>,
-    /// 处理器句柄
-    processor_handle: Option<JoinHandle<()>>,
+    /// 事件发送器（内部可变性，便于从 &self 关闭）
+    sender: Arc<Mutex<Option<mpsc::Sender<SinkMessage>>>>,
+    /// 处理器句柄（内部可变性，便于从 &self 等待任务结束）
+    processor_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
 /// Sink 消息
@@ -51,8 +52,8 @@ impl FileSink {
     pub fn new(config: FileConfig) -> Self {
         Self {
             config,
-            sender: None,
-            processor_handle: None,
+            sender: Arc::new(Mutex::new(None)),
+            processor_handle: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -65,7 +66,7 @@ impl FileSink {
 
     /// 启动 sink
     pub async fn start(&mut self) -> Result<()> {
-        if self.sender.is_some() {
+        if self.sender.lock().unwrap().is_some() {
             return Err(QuantumLogError::ConfigError(
                 "Sink already started".to_string(),
             ));
@@ -82,29 +83,42 @@ impl FileSink {
             }
         });
 
-        self.sender = Some(sender);
-        self.processor_handle = Some(handle);
+        {
+            let mut guard = self.sender.lock().unwrap();
+            *guard = Some(sender);
+        }
+        {
+            let mut guard = self.processor_handle.lock().unwrap();
+            *guard = Some(handle);
+        }
 
         Ok(())
     }
 
     /// 发送事件
     pub async fn send_event_internal(&self, event: QuantumLogEvent) -> Result<()> {
-        if let Some(sender) = &self.sender {
+        let sender_opt = {
+            let guard = self.sender.lock().unwrap();
+            guard.as_ref().cloned()
+        };
+        if let Some(sender) = sender_opt {
             let message = SinkMessage::Event(Box::new(event));
-
-            sender.send(message).await.map_err(|_| {
-                QuantumLogError::SinkError("Failed to send event to FileSink".to_string())
-            })?;
+            sender
+                .send(message)
+                .await
+                .map_err(|_| QuantumLogError::SinkError("Failed to send event to FileSink".to_string()))?;
         }
         Ok(())
     }
 
     /// 尝试发送事件（非阻塞）
     pub fn try_send_event(&self, event: QuantumLogEvent) -> Result<()> {
-        if let Some(sender) = &self.sender {
+        let sender_opt = {
+            let guard = self.sender.lock().unwrap();
+            guard.as_ref().cloned()
+        };
+        if let Some(sender) = sender_opt {
             let message = SinkMessage::Event(Box::new(event));
-
             sender.try_send(message).map_err(|e| match e {
                 mpsc::error::TrySendError::Full(_) => {
                     QuantumLogError::SinkError("FileSink buffer full".to_string())
@@ -117,19 +131,22 @@ impl FileSink {
         Ok(())
     }
 
-    /// 关闭 sink
-    pub async fn shutdown(mut self) -> Result<()> {
-        if let Some(sender) = self.sender.take() {
+    /// 内部通用关闭逻辑，支持从 &self 调用
+    async fn shutdown_ref(&self) -> Result<()> {
+        // 发送关闭信号
+        let sender_taken = {
+            let mut guard = self.sender.lock().unwrap();
+            guard.take()
+        };
+        if let Some(sender) = sender_taken {
             let (tx, rx) = oneshot::channel();
 
-            // 发送关闭信号
             if sender.send(SinkMessage::Shutdown(tx)).await.is_err() {
                 return Err(QuantumLogError::SinkError(
                     "Failed to send shutdown signal".to_string(),
                 ));
             }
 
-            // 等待关闭完成
             match rx.await {
                 Ok(result) => result?,
                 Err(_) => {
@@ -141,7 +158,11 @@ impl FileSink {
         }
 
         // 等待处理器完成
-        if let Some(handle) = self.processor_handle.take() {
+        let handle_taken = {
+            let mut guard = self.processor_handle.lock().unwrap();
+            guard.take()
+        };
+        if let Some(handle) = handle_taken {
             if let Err(e) = handle.await {
                 tracing::error!("Error waiting for FileSink processor: {}", e);
             }
@@ -150,9 +171,14 @@ impl FileSink {
         Ok(())
     }
 
+    /// 关闭 sink（保留以兼容现有调用点）
+    pub async fn shutdown(self) -> Result<()> {
+        self.shutdown_ref().await
+    }
+
     /// 检查是否正在运行
     pub fn is_running(&self) -> bool {
-        self.sender.is_some()
+        self.sender.lock().unwrap().is_some()
     }
 
     /// 获取配置
@@ -195,12 +221,21 @@ impl FileSinkProcessor {
             None
         };
 
+        // 解析级别过滤器
+        let level_filter = if let Some(ref level_str) = config.level {
+            Some(level_str.parse::<Level>().map_err(|_| {
+                QuantumLogError::ConfigError(format!("Invalid log level: {}", level_str))
+            })?)
+        } else {
+            None
+        };
+
         Ok(Self {
             config,
             receiver,
             writer,
             cleaner,
-            level_filter: None,
+            level_filter,
         })
     }
 
@@ -227,21 +262,20 @@ impl FileSinkProcessor {
     async fn handle_event(&mut self, event: QuantumLogEvent) -> Result<()> {
         // 检查级别过滤
         if let Some(ref filter_level) = self.level_filter {
-            let event_level = event.level.parse::<Level>().map_err(|_| {
-                QuantumLogError::ConfigError(format!("Invalid log level: {}", event.level))
-            })?;
-
+            let event_level = event
+                .level
+                .parse::<Level>()
+                .map_err(|_| QuantumLogError::ConfigError(format!("Invalid log level: {}", event.level)))?;
             if event_level < *filter_level {
                 return Ok(());
             }
         }
 
+        // 目前不进行级别过滤，交由上层控制
         // 格式化事件
         let formatted = self.format_event(&event)?;
-
         // 写入文件
         self.writer.write(formatted.as_bytes()).await?;
-
         Ok(())
     }
 
@@ -254,8 +288,7 @@ impl FileSinkProcessor {
             crate::config::FileOutputType::Csv => "csv",
         };
         Ok(format!(
-            "{}
-",
+            "{}\n",
             event.to_formatted_string(format_type)
         ))
     }
@@ -525,21 +558,21 @@ impl QuantumSink for FileSink {
     type Error = SinkError;
 
     async fn send_event(&self, event: QuantumLogEvent) -> std::result::Result<(), Self::Error> {
-        self.send_event_internal(event).await
-            .map_err(|e| match e {
-                QuantumLogError::ChannelError(msg) => SinkError::Generic(msg),
-                QuantumLogError::ConfigError(msg) => SinkError::Config(msg),
-                QuantumLogError::IoError { source } => SinkError::Io(source),
-                _ => SinkError::Generic(e.to_string()),
-            })
+        self.send_event_internal(event).await.map_err(|e| match e {
+            QuantumLogError::ChannelError(msg) => SinkError::Generic(msg),
+            QuantumLogError::ConfigError(msg) => SinkError::Config(msg),
+            QuantumLogError::IoError { source } => SinkError::Io(source),
+            _ => SinkError::Generic(e.to_string()),
+        })
     }
 
     async fn shutdown(&self) -> std::result::Result<(), Self::Error> {
-        // 注意：这里需要可变引用，但trait要求不可变引用
-        // 在实际使用中，可能需要使用内部可变性或重新设计
-        Err(SinkError::Generic(
-            "FileSink shutdown requires mutable reference".to_string()
-        ))
+        self.shutdown_ref().await.map_err(|e| match e {
+            QuantumLogError::ChannelError(msg) => SinkError::Generic(msg),
+            QuantumLogError::ConfigError(msg) => SinkError::Config(msg),
+            QuantumLogError::IoError { source } => SinkError::Io(source),
+            _ => SinkError::Generic(e.to_string()),
+        })
     }
 
     async fn is_healthy(&self) -> bool {

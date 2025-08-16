@@ -4,11 +4,12 @@
 
 use crate::config::{BackpressureStrategy, QuantumLoggerConfig};
 use crate::core::layers::formatter::FormatterLayer;
+use crate::diagnostics::get_diagnostics_instance;
 use crate::error::Result;
 #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
 use crate::sinks::database::DatabaseSink;
 use crate::sinks::stdout::StdoutSink;
-use crate::sinks::traits::QuantumSink;
+use crate::sinks::traits::{QuantumSink, SinkError, StackableSink};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::Event;
@@ -246,6 +247,15 @@ impl DispatcherLayer {
         &self,
         quantum_event: &crate::core::event::QuantumLogEvent,
     ) -> Result<()> {
+        // 获取诊断实例
+        let diagnostics = match get_diagnostics_instance() {
+            Some(d) => d,
+            None => {
+                eprintln!("Warning: Diagnostics not initialized");
+                return Ok(());
+            }
+        };
+
         // 分发到所有 Sink
         let sinks = self.sinks.read().await;
 
@@ -257,17 +267,45 @@ impl DispatcherLayer {
             let quantum_event_clone = quantum_event.clone();
             let strategy = sink.backpressure_strategy.clone();
 
-            match &sink.processor {
+            let result = match &sink.processor {
                 SinkProcessorInner::Stdout(processor) => {
-                    if let Err(e) = QuantumSink::send_event(processor.as_ref(), quantum_event_clone).await {
-                        eprintln!("Failed to send event to stdout sink: {}", e);
-                    }
+                    // Use StackableSink method for backpressure support
+                    StackableSink::send_event_internal(
+                        processor.as_ref(),
+                        &quantum_event_clone,
+                        strategy,
+                    )
+                    .await
                 }
                 #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
                 SinkProcessorInner::Database(processor) => {
-                    if let Err(e) = QuantumSink::send_event(processor.as_ref(), quantum_event_clone).await {
-                        eprintln!("Failed to send event to database sink: {}", e);
-                    }
+                    // For database sink, use regular QuantumSink::send_event for now
+                    // TODO: Implement StackableSink for DatabaseSink if needed
+                    QuantumSink::send_event(processor.as_ref(), quantum_event_clone)
+                        .await
+                        .map_err(|e| SinkError::Generic(e.to_string()))
+                }
+            };
+
+            // Update diagnostics based on the result
+            match result {
+                Ok(()) => {
+                    // Event successfully processed
+                    diagnostics.increment_events_processed();
+                }
+                Err(SinkError::Backpressure) => {
+                    // Backpressure occurred
+                    diagnostics.increment_events_dropped_backpressure();
+                    eprintln!(
+                        "Event dropped due to backpressure in {} sink",
+                        sink.sink_type
+                    );
+                }
+                Err(e) => {
+                    // Other error occurred
+                    diagnostics.increment_events_dropped_error();
+                    diagnostics.increment_sink_errors();
+                    eprintln!("Failed to send event to {} sink: {}", sink.sink_type, e);
                 }
             }
         }
@@ -281,6 +319,15 @@ impl DispatcherLayer {
         metadata: &tracing::Metadata<'_>,
         fields: &std::collections::HashMap<String, String>,
     ) -> Result<()> {
+        // 获取诊断实例
+        let diagnostics = match get_diagnostics_instance() {
+            Some(d) => d,
+            None => {
+                eprintln!("Warning: Diagnostics not initialized");
+                return Ok(());
+            }
+        };
+
         // 获取上下文信息
         let context_info = {
             // 这里我们需要访问 formatter 中的 context_injector
@@ -320,20 +367,48 @@ impl DispatcherLayer {
             }
 
             let quantum_event_clone = quantum_event.clone();
-            let _ = sink.backpressure_strategy.clone();
+            let strategy = sink.backpressure_strategy.clone();
 
-            match &sink.processor {
+            let result = match &sink.processor {
                 SinkProcessorInner::Stdout(processor) => {
-                    if let Err(e) = QuantumSink::send_event(processor.as_ref(), quantum_event_clone).await {
-                        eprintln!("Failed to send event to stdout sink: {}", e);
-                    }
+                    // Use StackableSink method for backpressure support
+                    StackableSink::send_event_internal(
+                        processor.as_ref(),
+                        &quantum_event_clone,
+                        strategy,
+                    )
+                    .await
                 }
                 #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
                 SinkProcessorInner::Database(processor) => {
-                    if let Err(e) = QuantumSink::send_event(processor.as_ref(), quantum_event_clone).await {
-                        eprintln!("Failed to send event to database sink: {}", e);
-                    }
+                    // For database sink, use regular QuantumSink::send_event for now
+                    // TODO: Implement StackableSink for DatabaseSink if needed
+                    QuantumSink::send_event(processor.as_ref(), quantum_event_clone)
+                        .await
+                        .map_err(|e| SinkError::Generic(e.to_string()))
                 } // 未来会添加其他 Sink 类型的处理
+            };
+
+            // Update diagnostics based on the result
+            match result {
+                Ok(()) => {
+                    // Event successfully processed
+                    diagnostics.increment_events_processed();
+                }
+                Err(SinkError::Backpressure) => {
+                    // Backpressure occurred
+                    diagnostics.increment_events_dropped_backpressure();
+                    eprintln!(
+                        "Event dropped due to backpressure in {} sink",
+                        sink.sink_type
+                    );
+                }
+                Err(e) => {
+                    // Other error occurred
+                    diagnostics.increment_events_dropped_error();
+                    diagnostics.increment_sink_errors();
+                    eprintln!("Failed to send event to {} sink: {}", sink.sink_type, e);
+                }
             }
         }
 

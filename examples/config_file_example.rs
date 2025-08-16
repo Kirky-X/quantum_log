@@ -2,18 +2,22 @@
 //! 这个示例展示了如何从 TOML 配置文件加载配置并初始化 QuantumLog
 
 use quantum_log::{init_with_config, shutdown, QuantumLogConfig};
-use tracing::{info, warn, error, debug, span, Level};
 use std::path::Path;
 use tokio::fs;
+use tracing::{debug, error, info, span, warn, Level};
 
 /// 从字符串加载配置（用于演示）
-async fn load_config_from_string(config_content: &str) -> Result<QuantumLogConfig, Box<dyn std::error::Error>> {
+async fn load_config_from_string(
+    config_content: &str,
+) -> Result<QuantumLogConfig, Box<dyn std::error::Error>> {
     let config: QuantumLogConfig = toml::from_str(config_content)?;
     Ok(config)
 }
 
 /// 从文件加载配置
-async fn load_config_from_file<P: AsRef<Path>>(path: P) -> Result<QuantumLogConfig, Box<dyn std::error::Error>> {
+async fn load_config_from_file<P: AsRef<Path>>(
+    path: P,
+) -> Result<QuantumLogConfig, Box<dyn std::error::Error>> {
     let content = fs::read_to_string(path).await?;
     let config: QuantumLogConfig = toml::from_str(&content)?;
     Ok(config)
@@ -85,10 +89,10 @@ auto_create_table = true
 /// 示例1: 从字符串配置加载
 async fn example_load_from_string() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== 示例1: 从字符串配置加载 ===");
-    
+
     let config_content = create_example_config();
     let config = load_config_from_string(config_content).await?;
-    
+
     // 只在第一次初始化
     static INIT_ONCE: std::sync::Once = std::sync::Once::new();
     INIT_ONCE.call_once(|| {
@@ -98,20 +102,20 @@ async fn example_load_from_string() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     });
-    
+
     // 等待初始化完成
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-    
+
     info!("从字符串配置加载成功");
     debug!("调试级别日志已启用");
     warn!(component = "config", "配置加载完成");
     error!("测试错误日志");
-    
+
     // 使用结构化日志记录
     let span = span!(Level::INFO, "config_test", config_source = "string");
     let _enter = span.enter();
     info!("在配置测试 span 中记录日志");
-    
+
     println!("从字符串配置加载示例完成");
     Ok(())
 }
@@ -119,38 +123,38 @@ async fn example_load_from_string() -> Result<(), Box<dyn std::error::Error>> {
 /// 示例2: 从文件加载配置
 async fn example_load_from_file() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== 示例2: 从文件加载配置 ===");
-    
+
     let config_path = "./examples/quantum_log_example.toml";
-    
+
     // 检查配置文件是否存在
     if !Path::new(config_path).exists() {
         println!("配置文件 {} 不存在，创建临时配置文件", config_path);
-        
+
         // 创建临时配置文件
         let temp_config_path = "./temp_config.toml";
         fs::write(temp_config_path, create_example_config()).await?;
-        
+
         let _config = load_config_from_file(temp_config_path).await?;
         // 不再重复初始化
-        
+
         // 清理临时文件
         let _ = fs::remove_file(temp_config_path).await;
     } else {
         let _config = load_config_from_file(config_path).await?;
         // 不再重复初始化
     }
-    
+
     info!("从文件配置加载成功");
     debug!("文件配置中的调试日志");
     warn!(source = "file", "从文件加载的配置");
-    
+
     // 记录一些结构化数据
     info!(
         config_file = config_path,
         load_time = chrono::Utc::now().to_rfc3339(),
         "配置文件加载完成"
     );
-    
+
     println!("从文件加载配置示例完成");
     Ok(())
 }
@@ -158,26 +162,26 @@ async fn example_load_from_file() -> Result<(), Box<dyn std::error::Error>> {
 /// 示例3: 动态配置修改
 async fn example_dynamic_config() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== 示例3: 动态配置修改 ===");
-    
+
     // 创建基础配置
     let mut config_content = create_example_config().to_string();
-    
+
     // 修改配置 - 更改日志级别
     config_content = config_content.replace("global_level = \"DEBUG\"", "global_level = \"WARN\"");
-    
+
     let _config = load_config_from_string(&config_content).await?;
     // 不再重复初始化
-    
+
     // 这些日志不会显示，因为级别设置为 WARN
     debug!("这条调试日志不会显示");
     info!("这条信息日志不会显示");
-    
+
     // 这些日志会显示
     warn!("这条警告日志会显示");
     error!("这条错误日志会显示");
-    
+
     info!("动态配置修改测试完成");
-    
+
     println!("动态配置修改示例完成");
     Ok(())
 }
@@ -185,10 +189,10 @@ async fn example_dynamic_config() -> Result<(), Box<dyn std::error::Error>> {
 /// 示例4: 环境特定配置
 async fn example_environment_specific_config() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== 示例4: 环境特定配置 ===");
-    
+
     // 模拟不同环境的配置
     let env = std::env::var("RUST_ENV").unwrap_or_else(|_| "development".to_string());
-    
+
     let config_content = match env.as_str() {
         "production" => {
             r#"
@@ -210,7 +214,7 @@ output_type = "Json"
 enabled = true
 level = "WARN"
 "#
-        },
+        }
         "testing" => {
             r#"
 global_level = "DEBUG"
@@ -227,8 +231,9 @@ format = "Text"
 [file]
 enabled = false
 "#
-        },
-        _ => { // development
+        }
+        _ => {
+            // development
             r#"
 global_level = "DEBUG"
 pre_init_buffer_size = 2000
@@ -248,14 +253,14 @@ output_type = "Json"
 "#
         }
     };
-    
+
     let _config = load_config_from_string(config_content).await?;
     // 不再重复初始化
-    
+
     info!(environment = %env, "环境特定配置已加载");
     debug!("开发环境调试信息");
     warn!("环境配置警告");
-    
+
     println!("环境特定配置示例完成");
     Ok(())
 }
@@ -263,7 +268,7 @@ output_type = "Json"
 /// 示例5: 配置验证和错误处理
 async fn example_config_validation() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== 示例5: 配置验证和错误处理 ===");
-    
+
     // 测试无效配置
     let invalid_configs = vec![
         // 无效的日志级别
@@ -282,7 +287,7 @@ enabled = true
 # 缺少 path 字段
 "#,
     ];
-    
+
     for (i, invalid_config) in invalid_configs.iter().enumerate() {
         println!("测试无效配置 {}", i + 1);
         match load_config_from_string(invalid_config).await {
@@ -290,14 +295,14 @@ enabled = true
             Err(e) => println!("✅ 配置 {} 正确被拒绝: {}", i + 1, e),
         }
     }
-    
+
     // 使用有效配置继续
     let valid_config = create_example_config();
     let _config = load_config_from_string(valid_config).await?;
     // 不再重复初始化
-    
+
     info!("配置验证测试完成");
-    
+
     println!("配置验证和错误处理示例完成");
     Ok(())
 }
@@ -307,7 +312,7 @@ enabled = true
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("QuantumLog 配置文件示例");
     println!("========================\n");
-    
+
     // 运行所有示例
     let examples = vec![
         "从字符串配置加载",
@@ -316,11 +321,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "环境特定配置",
         "配置验证和错误处理",
     ];
-    
+
     for name in examples {
         println!("\n运行示例: {}", name);
         println!("{}", "=".repeat(50));
-        
+
         let result = match name {
             "从字符串配置加载" => example_load_from_string().await,
             "从文件加载配置" => example_load_from_file().await,
@@ -332,7 +337,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 continue;
             }
         };
-        
+
         match result {
             Ok(_) => println!("✅ {} 示例成功完成", name),
             Err(e) => {
@@ -340,13 +345,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // 继续运行其他示例
             }
         }
-        
+
         // 在示例之间稍作停顿
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     }
-    
+
     println!("\n🎉 所有配置文件示例运行完成！");
-    
+
     // 最后关闭日志系统
     shutdown().await?;
     Ok(())
@@ -355,33 +360,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_load_from_string() {
         assert!(example_load_from_string().await.is_ok());
     }
-    
+
     #[tokio::test]
     async fn test_dynamic_config() {
         assert!(example_dynamic_config().await.is_ok());
     }
-    
+
     #[tokio::test]
     async fn test_environment_specific_config() {
         match example_environment_specific_config().await {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => {
                 eprintln!("Environment specific config test failed: {}", e);
                 panic!("Test failed with error: {}", e);
             }
         }
     }
-    
+
     #[tokio::test]
     async fn test_config_validation() {
         assert!(example_config_validation().await.is_ok());
     }
-    
+
     #[test]
     fn test_config_parsing() {
         let config_content = create_example_config();

@@ -285,7 +285,6 @@ impl BufferedEvent {
 mod tests {
     use super::*;
     use tracing::Level;
-    
 
     #[test]
     fn test_buffer_creation() {
