@@ -5,3 +5,7 @@ logs/
 .trae/
 .vscode/
 .idea/
+# Ignore test binaries and backup files
+/test/*.exe
+/test/*.pdb
+Cargo.toml.orig
