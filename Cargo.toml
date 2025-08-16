@@ -8,6 +8,12 @@ license = "Apache-2.0"
 repository = "https://github.com/Kirky-X/quantum_log"
 keywords = ["logging", "tracing", "async", "performance"]
 categories = ["development-tools::debugging"]
+exclude = [
+  ".github/",
+  "test/*.exe",
+  "test/*.pdb",
+  "Cargo.toml.orig"
+]
 
 [dependencies]
 # Core tracing ecosystem
@@ -17,8 +23,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "regis
 tracing-appender = "0.2"
 
 # Async runtime
-tokio = { version = "1.45", features = ["full"] }
-tokio-util = { version = "0.7", features = ["codec"] }
+ tokio = { version = "1.45", features = ["full"] }
+ tokio-util = { version = "0.7", features = ["codec"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
