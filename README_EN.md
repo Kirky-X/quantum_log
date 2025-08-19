@@ -85,10 +85,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 QuantumLog 0.3.1 brings stronger features and better stability. Key changes:
 
-- Zero dead_code warnings: all compile warnings removed for a clean build
-- MPI dynamic loading: load MPI libraries at runtime for deployment flexibility
-- Documentation improvements: unified feature names and corrected examples
-- Enhanced error handling: more precise error categorization and handling
+**🔒 Security Hardening**
+- Database connection string sanitization: prevent sensitive information leakage
+- File permission security checks: ensure proper log file access permissions
+- Buffer overflow protection: enhance memory safety
+- Network transmission encryption support: improve data transmission security
+
+**⚡ Performance Optimization**
+- Reduce string allocation and cloning operations
+- Optimize HashMap conversion performance
+- Improve database operation efficiency
+- Optimize file path processing
+
+**🛠️ Code Quality Improvements**
+- Fix QuantumLoggerConfig missing fields issue
+- Fix PipelineBuilder import issue
+- Remove unused imports and variables
+- All test cases pass verification
 
 > Migration Note (MPI dynamic loading): Starting from 0.3.1, the runtime loader does not read a custom `MPI_LIB_PATH`. Use platform-standard environment variables (`LD_LIBRARY_PATH`/`PATH`/`DYLD_LIBRARY_PATH`) to override or specify library paths. `MPI_LIB_PATH` is only surfaced during build for informational purposes and is not used at runtime.
 
