@@ -230,6 +230,12 @@ async fn example_advanced_config() -> Result<(), Box<dyn std::error::Error>> {
 
         #[cfg(not(feature = "database"))]
         database: None,
+        
+        // 网络配置
+        network: None,
+        
+        // 级别文件配置
+        level_file: None,
     };
 
     info!("高级配置已初始化");
@@ -412,9 +418,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mpi_examples = vec!["MPI 环境使用"];
 
     // 合并所有示例
-    let mut all_examples = examples;
     #[cfg(feature = "mpi_support")]
-    all_examples.extend(mpi_examples);
+    let all_examples = {
+        let mut combined = examples;
+        combined.extend(mpi_examples);
+        combined
+    };
+    #[cfg(not(feature = "mpi_support"))]
+    let all_examples = examples;
 
     for name in all_examples {
         println!("\n运行示例: {}", name);

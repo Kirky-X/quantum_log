@@ -78,6 +78,8 @@ pub struct QuantumLoggerConfig {
     pub stdout: Option<StdoutConfig>,
     pub file: Option<FileSinkConfig>,
     pub database: Option<DatabaseSinkConfig>,
+    pub network: Option<NetworkConfig>,
+    pub level_file: Option<LevelFileConfig>,
     #[serde(default)]
     pub context_fields: ContextFieldsConfig,
     #[serde(default)]
@@ -94,6 +96,8 @@ impl Default for QuantumLoggerConfig {
             stdout: None,
             file: None,
             database: None,
+            network: None,
+            level_file: None,
             context_fields: ContextFieldsConfig::default(),
             format: LogFormatConfig::default(),
         }
@@ -350,6 +354,8 @@ pub struct NetworkConfig {
     #[serde(default = "default_file_buffer_size")]
     pub buffer_size: usize,
     pub timeout_ms: Option<u64>,
+    #[cfg(feature = "tls")]
+    pub use_tls: Option<bool>,
 }
 
 /// 级别文件配置
@@ -373,7 +379,7 @@ pub struct LevelFileConfig {
 pub type QuantumLogConfig = QuantumLoggerConfig;
 
 /// 数据库输出管道的配置。
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct DatabaseSinkConfig {
     #[serde(default = "default_false")]
@@ -392,6 +398,24 @@ pub struct DatabaseSinkConfig {
     pub connection_timeout_ms: u64,
     #[serde(default = "default_true")]
     pub auto_create_table: bool,
+}
+
+// 安全的Debug实现，避免泄露敏感的连接字符串
+impl std::fmt::Debug for DatabaseSinkConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DatabaseSinkConfig")
+            .field("enabled", &self.enabled)
+            .field("level", &self.level)
+            .field("db_type", &self.db_type)
+            .field("connection_string", &"[REDACTED]")
+            .field("schema_name", &self.schema_name)
+            .field("table_name", &self.table_name)
+            .field("batch_size", &self.batch_size)
+            .field("connection_pool_size", &self.connection_pool_size)
+            .field("connection_timeout_ms", &self.connection_timeout_ms)
+            .field("auto_create_table", &self.auto_create_table)
+            .finish()
+    }
 }
 
 /// 用于从 TOML 文件加载 `QuantumLoggerConfig` 的辅助函数。
@@ -436,6 +460,15 @@ pub fn validate_config(config: &QuantumLoggerConfig) -> crate::error::Result<()>
         }
     }
 
+    // 验证预初始化缓冲区大小
+    if let Some(buffer_size) = config.pre_init_buffer_size {
+        if buffer_size == 0 {
+            return Err(QuantumLogError::ConfigError(
+                "预初始化缓冲区大小必须大于0".to_string(),
+            ));
+        }
+    }
+
     // 验证各个sink的日志级别
     if let Some(ref stdout_config) = config.stdout {
         if let Some(ref level) = stdout_config.level {
@@ -461,6 +494,45 @@ pub fn validate_config(config: &QuantumLoggerConfig) -> crate::error::Result<()>
                 file_config.directory
             )));
         }
+
+        // 验证缓冲区大小
+        if file_config.write_buffer_size == 0 {
+            return Err(QuantumLogError::ConfigError(
+                "文件写入缓冲区大小必须大于0".to_string(),
+            ));
+        }
+
+        // 验证文件名基础部分不为空
+        if file_config.filename_base.trim().is_empty() {
+            return Err(QuantumLogError::ConfigError(
+                "文件名基础部分不能为空".to_string(),
+            ));
+        }
+
+        // 验证写入器缓存配置
+        if file_config.writer_cache_capacity == 0 {
+            return Err(QuantumLogError::ConfigError(
+                "写入器缓存容量必须大于0".to_string(),
+            ));
+        }
+
+        // 验证轮转配置（如果提供）
+        if let Some(ref rotation) = file_config.rotation {
+            if let RotationStrategy::Size = rotation.strategy {
+                if rotation.max_size_mb.is_none() {
+                    return Err(QuantumLogError::ConfigError(
+                        "使用大小轮转策略时必须指定max_size_mb".to_string(),
+                    ));
+                }
+                if let Some(max_size) = rotation.max_size_mb {
+                    if max_size == 0 {
+                        return Err(QuantumLogError::ConfigError(
+                            "轮转文件最大大小必须大于0MB".to_string(),
+                        ));
+                    }
+                }
+            }
+        }
     }
 
     if let Some(ref db_config) = config.database {
@@ -476,6 +548,103 @@ pub fn validate_config(config: &QuantumLoggerConfig) -> crate::error::Result<()>
             return Err(QuantumLogError::ConfigError(
                 "数据库连接字符串不能为空".to_string(),
             ));
+        }
+
+        // 验证数据库连接池大小
+        if db_config.connection_pool_size == 0 {
+            return Err(QuantumLogError::ConfigError(
+                "数据库连接池大小必须大于0".to_string(),
+            ));
+        }
+
+        // 验证批量大小
+        if db_config.batch_size == 0 {
+            return Err(QuantumLogError::ConfigError(
+                "数据库批量大小必须大于0".to_string(),
+            ));
+        }
+    }
+
+    // 验证网络配置
+    if let Some(ref network_config) = config.network {
+        if let Some(ref level) = network_config.level {
+            match level.to_uppercase().as_str() {
+                "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR" => {}
+                _ => return Err(QuantumLogError::InvalidLogLevel(level.clone())),
+            }
+        }
+
+        // 验证主机地址不为空
+        if network_config.host.trim().is_empty() {
+            return Err(QuantumLogError::ConfigError(
+                "网络主机地址不能为空".to_string(),
+            ));
+        }
+
+        // 验证端口范围
+        if network_config.port == 0 {
+            return Err(QuantumLogError::ConfigError(
+                "网络端口必须大于0".to_string(),
+            ));
+        }
+
+        // 验证缓冲区大小
+        if network_config.buffer_size == 0 {
+            return Err(QuantumLogError::ConfigError(
+                "网络缓冲区大小必须大于0".to_string(),
+            ));
+        }
+    }
+
+    // 验证级别文件配置
+    if let Some(ref level_file_config) = config.level_file {
+        // 验证文件路径
+        if !level_file_config.directory.is_absolute() {
+            return Err(QuantumLogError::InvalidPath(format!(
+                "级别文件输出目录必须是绝对路径: {:?}",
+                level_file_config.directory
+            )));
+        }
+
+        // 验证缓冲区大小
+        if level_file_config.buffer_size == 0 {
+            return Err(QuantumLogError::ConfigError(
+                "级别文件缓冲区大小必须大于0".to_string(),
+            ));
+        }
+
+        // 验证文件名基础部分不为空
+        if level_file_config.filename_base.trim().is_empty() {
+            return Err(QuantumLogError::ConfigError(
+                "级别文件名基础部分不能为空".to_string(),
+            ));
+        }
+
+        // 验证级别列表（如果提供）
+        if let Some(ref levels) = level_file_config.levels {
+            if levels.is_empty() {
+                return Err(QuantumLogError::ConfigError(
+                    "级别文件的级别列表不能为空".to_string(),
+                ));
+            }
+        }
+
+        // 验证轮转配置（如果提供）
+        if let Some(ref rotation) = level_file_config.rotation {
+            if let RotationStrategy::Size = rotation.strategy {
+                if rotation.max_size_mb.is_none() {
+                    return Err(QuantumLogError::ConfigError(
+                        "使用大小轮转策略时必须指定max_size_mb".to_string(),
+                    ));
+                }
+                if let Some(max_size) = rotation.max_size_mb {
+                    if max_size == 0 {
+                        return Err(QuantumLogError::ConfigError(
+                            "轮转文件最大大小必须大于0MB".to_string(),
+                        ));
+                    }
+                }
+            }
         }
     }
 

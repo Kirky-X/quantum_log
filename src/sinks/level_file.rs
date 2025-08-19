@@ -267,10 +267,29 @@ impl LevelFileSinkProcessor {
 
     /// 关闭处理器
     async fn shutdown(&mut self) -> Result<()> {
-        // 刷新所有写入器
+        // 刷新并关闭所有写入器
         for (level, writer) in &self.writers {
             if let Err(e) = writer.flush().await {
                 tracing::error!("Error flushing writer for level {}: {}", level, e);
+            }
+        }
+        
+        // 显式关闭所有写入器并释放文件句柄
+        self.writers.clear();
+        
+        // 关闭消息接收器
+        self.receiver.close();
+        
+        // 处理并丢弃所有剩余的未处理消息
+        while let Ok(msg) = self.receiver.try_recv() {
+            match msg {
+                SinkMessage::Event(_) => {
+                    // 丢弃剩余事件
+                }
+                SinkMessage::Shutdown(sender) => {
+                    // 响应关闭请求
+                    let _ = sender.send(Ok(()));
+                }
             }
         }
 
@@ -287,7 +306,8 @@ impl LevelFileSinkProcessor {
                 }
             }
         }
-
+        
+        tracing::info!("LevelFileSink shutdown completed");
         Ok(())
     }
 }

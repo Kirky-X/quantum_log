@@ -59,7 +59,21 @@ impl FileTools {
             }
         }
 
-        File::create(file_path).map_err(|e| QuantumLogError::IoError { source: e })
+        let file = File::create(file_path).map_err(|e| QuantumLogError::IoError { source: e })?;
+        
+        // 设置文件权限为仅所有者可读写 (Unix系统)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = file.metadata()
+                .map_err(|e| QuantumLogError::IoError { source: e })?
+                .permissions();
+            perms.set_mode(0o600); // 仅所有者可读写
+            file.set_permissions(perms)
+                .map_err(|e| QuantumLogError::IoError { source: e })?;
+        }
+        
+        Ok(file)
     }
 
     /// 安全地打开文件进行追加写入

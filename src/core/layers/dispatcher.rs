@@ -439,6 +439,8 @@ mod tests {
             }),
             file: None,
             database: None,
+            network: None,
+            level_file: None,
             context_fields: Default::default(),
             format: Default::default(),
         }

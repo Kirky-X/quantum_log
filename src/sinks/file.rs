@@ -68,7 +68,7 @@ impl FileSink {
     pub async fn start(&mut self) -> Result<()> {
         if self.sender.lock().unwrap().is_some() {
             return Err(QuantumLogError::ConfigError(
-                "Sink already started".to_string(),
+                "Sink already started".into(),
             ));
         }
 
@@ -106,7 +106,7 @@ impl FileSink {
             sender
                 .send(message)
                 .await
-                .map_err(|_| QuantumLogError::SinkError("Failed to send event to FileSink".to_string()))?;
+                .map_err(|_| QuantumLogError::SinkError("Failed to send event to FileSink".into()))?;
         }
         Ok(())
     }
@@ -121,10 +121,10 @@ impl FileSink {
             let message = SinkMessage::Event(Box::new(event));
             sender.try_send(message).map_err(|e| match e {
                 mpsc::error::TrySendError::Full(_) => {
-                    QuantumLogError::SinkError("FileSink buffer full".to_string())
+                    QuantumLogError::SinkError("FileSink buffer full".into())
                 }
                 mpsc::error::TrySendError::Closed(_) => {
-                    QuantumLogError::SinkError("FileSink closed".to_string())
+                    QuantumLogError::SinkError("FileSink closed".into())
                 }
             })?;
         }
@@ -143,7 +143,7 @@ impl FileSink {
 
             if sender.send(SinkMessage::Shutdown(tx)).await.is_err() {
                 return Err(QuantumLogError::SinkError(
-                    "Failed to send shutdown signal".to_string(),
+                    "Failed to send shutdown signal".into(),
                 ));
             }
 
@@ -151,7 +151,7 @@ impl FileSink {
                 Ok(result) => result?,
                 Err(_) => {
                     return Err(QuantumLogError::SinkError(
-                        "Shutdown signal lost".to_string(),
+                        "Shutdown signal lost".into(),
                     ))
                 }
             }
@@ -207,8 +207,7 @@ impl FileSinkProcessor {
 
         let cleaner = if let Some(ref rotation) = config.rotation {
             // 如果启用了轮转，创建清理器
-            let base_path = config.directory.to_string_lossy().to_string();
-
+            let base_path = config.directory.to_string_lossy().into_owned();
             let mut cleaner = FileCleaner::new(&base_path);
 
             // 根据轮转策略设置清理参数
@@ -287,25 +286,40 @@ impl FileSinkProcessor {
             crate::config::FileOutputType::Text => "full",
             crate::config::FileOutputType::Csv => "csv",
         };
-        Ok(format!(
-            "{}\n",
-            event.to_formatted_string(format_type)
-        ))
+        let formatted = event.to_formatted_string(format_type);
+        let mut result = String::with_capacity(formatted.len() + 1);
+        result.push_str(&formatted);
+        result.push('\n');
+        Ok(result)
     }
 
     /// 关闭处理器
     async fn shutdown(&mut self) -> Result<()> {
+        tracing::debug!("FileSinkProcessor 开始关闭");
+        
         // 刷新写入器
         if let Err(e) = self.writer.flush().await {
             tracing::error!("Error flushing file writer: {}", e);
+        } else {
+            tracing::debug!("文件写入器刷新完成");
+        }
+        
+        // 显式关闭文件句柄
+        if let Err(e) = self.writer.close().await {
+            tracing::error!("Error closing file writer: {}", e);
+        } else {
+            tracing::debug!("文件写入器关闭完成");
         }
 
         // 执行清理（如果启用）
         if let Some(ref cleaner) = self.cleaner {
+            tracing::debug!("开始执行文件清理");
             match cleaner.cleanup().await {
                 Ok(removed) => {
                     if removed > 0 {
                         tracing::info!("Cleaned up {} old log files", removed);
+                    } else {
+                        tracing::debug!("没有需要清理的旧日志文件");
                     }
                 }
                 Err(e) => {
@@ -313,7 +327,30 @@ impl FileSinkProcessor {
                 }
             }
         }
-
+        
+        // 关闭消息接收器
+        self.receiver.close();
+        
+        // 清空接收器中剩余的消息
+        let mut remaining_messages = 0;
+        while let Ok(message) = self.receiver.try_recv() {
+            remaining_messages += 1;
+            match message {
+                SinkMessage::Event(_) => {
+                    // 丢弃剩余的事件
+                }
+                SinkMessage::Shutdown(sender) => {
+                    // 响应剩余的关闭请求
+                    let _ = sender.send(Ok(()));
+                }
+            }
+        }
+        
+        if remaining_messages > 0 {
+            tracing::warn!("丢弃了 {} 个未处理的消息", remaining_messages);
+        }
+        
+        tracing::debug!("FileSinkProcessor 关闭完成");
         Ok(())
     }
 }

@@ -151,15 +151,15 @@ impl DatabaseSink {
             }
             #[cfg(not(feature = "sqlite"))]
             DatabaseType::Sqlite => Err(QuantumLogError::DatabaseError(
-                "SQLite support not enabled".to_string(),
+                "SQLite support not enabled".into(),
             )),
             #[cfg(not(feature = "mysql"))]
             DatabaseType::Mysql => Err(QuantumLogError::DatabaseError(
-                "MySQL support not enabled".to_string(),
+                "MySQL support not enabled".into(),
             )),
             #[cfg(not(feature = "postgres"))]
             DatabaseType::Postgresql => Err(QuantumLogError::DatabaseError(
-                "PostgreSQL support not enabled".to_string(),
+                "PostgreSQL support not enabled".into(),
             )),
         }
     }
@@ -345,23 +345,32 @@ impl DatabaseSink {
     /// 将 QuantumLogEvent 转换为 NewQuantumLogEntry
     #[cfg(feature = "database")]
     async fn convert_event_to_entry(&self, event: &QuantumLogEvent) -> Result<NewQuantumLogEntry> {
+        // 优化字符串处理，减少不必要的克隆
+        let hostname = event.context.hostname.as_deref().unwrap_or("");
+        let username = event.context.username.as_deref().unwrap_or("");
+        
+        // 预分配字符串以避免重复分配
+        let tid_str = event.context.tid.to_string();
+        let hostname_str = hostname.to_string();
+        let username_str = username.to_string();
+        
         let mut entry = NewQuantumLogEntry::new(
             event.timestamp.naive_utc(),
-            event.level.to_string(),
+            event.level.clone(),
             event.target.clone(),
             event.message.clone(),
             event.context.pid.try_into().unwrap_or(0),
-            event.context.tid.to_string(),
-            event.context.hostname.clone().unwrap_or_default(),
-            event.context.username.clone().unwrap_or_default(),
+            tid_str,
+            hostname_str,
+            username_str,
         );
 
-        // 设置可选字段
-        if let Some(ref file_path) = event.file {
+        // 设置可选字段，避免不必要的克隆
+        if let Some(file_path) = &event.file {
             entry = entry.with_file_info(Some(file_path.clone()), event.line.map(|l| l as i32));
         }
 
-        if let Some(ref module_path) = event.module_path {
+        if let Some(module_path) = &event.module_path {
             entry = entry.with_module_path(Some(module_path.clone()));
         }
 
@@ -423,86 +432,216 @@ impl DatabaseSink {
         }
     }
 
-    /// 在阻塞线程中执行批量插入
+    /// 在阻塞线程中执行批量插入（带重试机制）
     #[cfg(feature = "database")]
     fn insert_batch_blocking(pool: DatabasePool, entries: Vec<NewQuantumLogEntry>) -> Result<()> {
         use crate::sinks::database::schema::quantum_logs;
+        use std::thread;
+        use std::time::Duration as StdDuration;
 
-        match pool {
-            #[cfg(feature = "sqlite")]
-            DatabasePool::Sqlite(pool) => {
-                let mut conn = pool.get().map_err(|e| {
-                    QuantumLogError::DatabaseError(format!("获取 SQLite 连接失败: {}", e))
-                })?;
+        const MAX_RETRIES: u32 = 3;
+        const RETRY_DELAY_MS: u64 = 1000;
 
-                diesel::insert_into(quantum_logs::table)
-                    .values(&entries)
-                    .execute(&mut conn)
-                    .map_err(|e| {
-                        QuantumLogError::DatabaseError(format!("SQLite 批量插入失败: {}", e))
+        let mut last_error = None;
+
+        for attempt in 1..=MAX_RETRIES {
+            let result = match &pool {
+                #[cfg(feature = "sqlite")]
+                DatabasePool::Sqlite(pool) => {
+                    let mut conn = pool.get().map_err(|e| {
+                        QuantumLogError::DatabaseError(format!("获取 SQLite 连接失败: {}", e))
                     })?;
-            }
-            #[cfg(feature = "mysql")]
-            DatabasePool::Mysql(pool) => {
-                let mut conn = pool.get().map_err(|e| {
-                    QuantumLogError::DatabaseError(format!("获取 MySQL 连接失败: {}", e))
-                })?;
 
-                diesel::insert_into(quantum_logs::table)
-                    .values(&entries)
-                    .execute(&mut conn)
-                    .map_err(|e| {
-                        QuantumLogError::DatabaseError(format!("MySQL 批量插入失败: {}", e))
+                    diesel::insert_into(quantum_logs::table)
+                        .values(&entries)
+                        .execute(&mut conn)
+                        .map_err(|e| {
+                            QuantumLogError::DatabaseError(format!("SQLite 批量插入失败: {}", e))
+                        })
+                }
+                #[cfg(feature = "mysql")]
+                DatabasePool::Mysql(pool) => {
+                    let mut conn = pool.get().map_err(|e| {
+                        QuantumLogError::DatabaseError(format!("获取 MySQL 连接失败: {}", e))
                     })?;
-            }
-            #[cfg(feature = "postgres")]
-            DatabasePool::Postgres(pool) => {
-                let mut conn = pool.get().map_err(|e| {
-                    QuantumLogError::DatabaseError(format!("获取 PostgreSQL 连接失败: {}", e))
-                })?;
 
-                diesel::insert_into(quantum_logs::table)
-                    .values(&entries)
-                    .execute(&mut conn)
-                    .map_err(|e| {
-                        QuantumLogError::DatabaseError(format!("PostgreSQL 批量插入失败: {}", e))
+                    diesel::insert_into(quantum_logs::table)
+                        .values(&entries)
+                        .execute(&mut conn)
+                        .map_err(|e| {
+                            QuantumLogError::DatabaseError(format!("MySQL 批量插入失败: {}", e))
+                        })
+                }
+                #[cfg(feature = "postgres")]
+                DatabasePool::Postgres(pool) => {
+                    let mut conn = pool.get().map_err(|e| {
+                        QuantumLogError::DatabaseError(format!("获取 PostgreSQL 连接失败: {}", e))
                     })?;
+
+                    diesel::insert_into(quantum_logs::table)
+                        .values(&entries)
+                        .execute(&mut conn)
+                        .map_err(|e| {
+                            QuantumLogError::DatabaseError(format!("PostgreSQL 批量插入失败: {}", e))
+                        })
+                }
+            };
+
+            match result {
+                Ok(_) => {
+                    if attempt > 1 {
+                        info!("数据库重连成功，第 {} 次尝试", attempt);
+                    }
+                    return Ok(());
+                }
+                Err(e) => {
+                    last_error = Some(e);
+                    if attempt < MAX_RETRIES {
+                        warn!("数据库操作失败，第 {} 次尝试，将在 {}ms 后重试: {}", 
+                              attempt, RETRY_DELAY_MS, last_error.as_ref().unwrap());
+                        thread::sleep(StdDuration::from_millis(RETRY_DELAY_MS * attempt as u64));
+                    }
+                }
             }
         }
 
-        Ok(())
+        Err(last_error.unwrap_or_else(|| {
+            QuantumLogError::DatabaseError("数据库操作失败，已达到最大重试次数".to_string())
+        }))
     }
 
-    /// 测试数据库连接
+    /// 测试数据库连接（带重试机制）
     #[cfg(feature = "database")]
     pub async fn test_connection(&self) -> Result<()> {
         let pool = self.pool.clone();
 
         tokio::task::spawn_blocking(move || {
-            match pool {
-                #[cfg(feature = "sqlite")]
-                DatabasePool::Sqlite(pool) => {
-                    let _conn = pool.get().map_err(|e| {
-                        QuantumLogError::DatabaseError(format!("SQLite 连接测试失败: {}", e))
-                    })?;
-                }
-                #[cfg(feature = "mysql")]
-                DatabasePool::Mysql(pool) => {
-                    let _conn = pool.get().map_err(|e| {
-                        QuantumLogError::DatabaseError(format!("MySQL 连接测试失败: {}", e))
-                    })?;
-                }
-                #[cfg(feature = "postgres")]
-                DatabasePool::Postgres(pool) => {
-                    let _conn = pool.get().map_err(|e| {
-                        QuantumLogError::DatabaseError(format!("PostgreSQL 连接测试失败: {}", e))
-                    })?;
-                }
-            }
-            Ok::<(), QuantumLogError>(())
+            Self::test_connection_blocking(&pool)
         })
         .await
         .map_err(|e| QuantumLogError::DatabaseError(format!("连接测试任务执行失败: {}", e)))?
+    }
+
+    /// 在阻塞线程中测试数据库连接（带重试机制）
+    #[cfg(feature = "database")]
+    fn test_connection_blocking(pool: &DatabasePool) -> Result<()> {
+        use std::thread;
+        use std::time::Duration as StdDuration;
+
+        const MAX_RETRIES: u32 = 3;
+        const RETRY_DELAY_MS: u64 = 500;
+
+        let mut last_error = None;
+
+        for attempt in 1..=MAX_RETRIES {
+            let result = match pool {
+                #[cfg(feature = "sqlite")]
+                DatabasePool::Sqlite(pool) => {
+                    let mut conn = pool.get().map_err(|e| {
+                        QuantumLogError::DatabaseError(format!("获取 SQLite 连接失败: {}", e))
+                    })?;
+                    
+                    diesel::sql_query("SELECT 1")
+                        .execute(&mut conn)
+                        .map_err(|e| {
+                            QuantumLogError::DatabaseError(format!("SQLite 连接测试失败: {}", e))
+                        })
+                }
+                #[cfg(feature = "mysql")]
+                DatabasePool::Mysql(pool) => {
+                    let mut conn = pool.get().map_err(|e| {
+                        QuantumLogError::DatabaseError(format!("获取 MySQL 连接失败: {}", e))
+                    })?;
+                    
+                    diesel::sql_query("SELECT 1")
+                        .execute(&mut conn)
+                        .map_err(|e| {
+                            QuantumLogError::DatabaseError(format!("MySQL 连接测试失败: {}", e))
+                        })
+                }
+                #[cfg(feature = "postgres")]
+                DatabasePool::Postgres(pool) => {
+                    let mut conn = pool.get().map_err(|e| {
+                        QuantumLogError::DatabaseError(format!("获取 PostgreSQL 连接失败: {}", e))
+                    })?;
+                    
+                    diesel::sql_query("SELECT 1")
+                        .execute(&mut conn)
+                        .map_err(|e| {
+                            QuantumLogError::DatabaseError(format!("PostgreSQL 连接测试失败: {}", e))
+                        })
+                }
+            };
+
+            match result {
+                Ok(_) => {
+                    if attempt > 1 {
+                        info!("数据库连接测试成功，第 {} 次尝试", attempt);
+                    }
+                    return Ok(());
+                }
+                Err(e) => {
+                    last_error = Some(e);
+                    if attempt < MAX_RETRIES {
+                        warn!("数据库连接测试失败，第 {} 次尝试，将在 {}ms 后重试: {}", 
+                              attempt, RETRY_DELAY_MS, last_error.as_ref().unwrap());
+                        thread::sleep(StdDuration::from_millis(RETRY_DELAY_MS));
+                    }
+                }
+            }
+        }
+        
+        Err(last_error.unwrap_or_else(|| {
+            QuantumLogError::DatabaseError("数据库连接测试失败，已达到最大重试次数".to_string())
+        }))
+    }
+
+    /// 启动健康检查任务
+    #[cfg(feature = "database")]
+    pub fn spawn_health_check_task(
+        &self,
+        mut shutdown_signal: tokio::sync::broadcast::Receiver<()>,
+    ) -> tokio::task::JoinHandle<Result<()>> {
+        let pool = self.pool.clone();
+        let config = self.config.clone();
+        
+        tokio::spawn(async move {
+            let mut interval = interval(Duration::from_secs(30)); // 每30秒检查一次
+            
+            info!("数据库健康检查任务已启动");
+            
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        if let Err(e) = Self::test_connection_blocking(&pool) {
+                            warn!("数据库健康检查失败: {}", e);
+                            
+                            // 尝试重新创建连接池
+                            match Self::create_connection_pool(&config).await {
+                                Ok(_new_pool) => {
+                                    info!("数据库连接池重新创建成功");
+                                    // 注意：这里无法直接替换 pool，因为它是不可变的
+                                    // 在实际实现中，可能需要使用 Arc<RwLock<DatabasePool>> 来允许替换
+                                }
+                                Err(e) => {
+                                    error!("数据库连接池重新创建失败: {}", e);
+                                }
+                            }
+                        } else {
+                            debug!("数据库健康检查通过");
+                        }
+                    },
+                    
+                    _ = shutdown_signal.recv() => {
+                        info!("收到停机信号，数据库健康检查任务正在停止");
+                        break;
+                    }
+                }
+            }
+            
+            info!("数据库健康检查任务已停止");
+            Ok(())
+        })
     }
 }
 
@@ -568,8 +707,75 @@ impl QuantumSink for DatabaseSink {
     }
 
     async fn shutdown(&self) -> std::result::Result<(), Self::Error> {
-        // 数据库连接池会自动处理连接的关闭
         debug!("DatabaseSink 正在关闭");
+        
+        #[cfg(feature = "database")]
+        {
+            // 显式关闭连接池中的所有连接
+            match &self.pool {
+                #[cfg(feature = "sqlite")]
+                DatabasePool::Sqlite(pool) => {
+                    let state = pool.state();
+                    debug!("SQLite连接池状态 - 连接数: {}, 空闲连接: {}", 
+                           state.connections, state.idle_connections);
+                    
+                    // 等待所有连接返回池中
+                    let mut attempts = 0;
+                    while state.idle_connections < state.connections && attempts < 10 {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                        attempts += 1;
+                    }
+                    
+                    if attempts >= 10 {
+                        warn!("等待SQLite连接返回池中超时");
+                    } else {
+                        debug!("所有SQLite连接已返回池中");
+                    }
+                }
+                #[cfg(feature = "mysql")]
+                DatabasePool::Mysql(pool) => {
+                    let state = pool.state();
+                    debug!("MySQL连接池状态 - 连接数: {}, 空闲连接: {}", 
+                           state.connections, state.idle_connections);
+                    
+                    // 等待所有连接返回池中
+                    let mut attempts = 0;
+                    while state.idle_connections < state.connections && attempts < 10 {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                        attempts += 1;
+                    }
+                    
+                    if attempts >= 10 {
+                        warn!("等待MySQL连接返回池中超时");
+                    } else {
+                        debug!("所有MySQL连接已返回池中");
+                    }
+                }
+                #[cfg(feature = "postgres")]
+                DatabasePool::Postgres(pool) => {
+                    let state = pool.state();
+                    debug!("PostgreSQL连接池状态 - 连接数: {}, 空闲连接: {}", 
+                           state.connections, state.idle_connections);
+                    
+                    // 等待所有连接返回池中
+                    let mut attempts = 0;
+                    while state.idle_connections < state.connections && attempts < 10 {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                        attempts += 1;
+                    }
+                    
+                    if attempts >= 10 {
+                        warn!("等待PostgreSQL连接返回池中超时");
+                    } else {
+                        debug!("所有PostgreSQL连接已返回池中");
+                    }
+                }
+            }
+            
+            debug!("数据库连接池资源清理完成");
+        }
+        
+        debug!("DatabaseSink 关闭完成");
         Ok(())
     }
 

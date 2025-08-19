@@ -159,7 +159,8 @@ impl DefaultStdoutSink {
 
     /// 格式化事件为文本
     fn format_as_text(&self, event: &QuantumLogEvent) -> String {
-        let mut output = String::new();
+        use std::fmt::Write;
+        let mut output = String::with_capacity(256);
 
         // 添加自定义前缀
         if let Some(prefix) = &self.config.prefix {
@@ -169,10 +170,9 @@ impl DefaultStdoutSink {
 
         // 添加时间戳
         if self.config.include_timestamp {
-            output.push_str(&format!(
-                "[{}] ",
-                event.timestamp.format("%Y-%m-%d %H:%M:%S%.3f")
-            ));
+            output.push('[');
+            write!(output, "{}", event.timestamp.format("%Y-%m-%d %H:%M:%S%.3f")).unwrap();
+            output.push_str("] ");
         }
 
         // 添加日志级别
@@ -185,24 +185,34 @@ impl DefaultStdoutSink {
                 "TRACE" => "\x1b[37mTRACE\x1b[0m", // 白色
                 _ => &event.level,
             };
-            output.push_str(&format!("[{}] ", colored_level));
+            output.push('[');
+            output.push_str(colored_level);
+            output.push_str("] ");
         } else {
-            output.push_str(&format!("[{}] ", event.level));
+            output.push('[');
+            output.push_str(&event.level);
+            output.push_str("] ");
         }
 
         // 添加模块路径
         if self.config.include_module {
             if let Some(module) = &event.module_path {
-                output.push_str(&format!("[{}] ", module));
+                output.push('[');
+                output.push_str(module);
+                output.push_str("] ");
             }
         }
 
         // 添加线程信息
         if self.config.include_thread {
             if let Some(thread_name) = &event.thread_name {
-                output.push_str(&format!("[{}] ", thread_name));
+                output.push('[');
+                output.push_str(thread_name);
+                output.push_str("] ");
             } else {
-                output.push_str(&format!("[{}] ", event.context.tid));
+                output.push('[');
+                write!(output, "{}", event.context.tid).unwrap();
+                output.push_str("] ");
             }
         }
 
@@ -216,11 +226,12 @@ impl DefaultStdoutSink {
                 if i > 0 {
                     output.push_str(", ");
                 }
-                let value_str = match value {
-                    serde_json::Value::String(s) => s.clone(),
-                    _ => value.to_string(),
-                };
-                output.push_str(&format!("{}: {}", key, value_str));
+                output.push_str(key);
+                output.push_str(": ");
+                match value {
+                    serde_json::Value::String(s) => output.push_str(s),
+                    _ => write!(output, "{}", value).unwrap(),
+                }
             }
             output.push('}');
         }
@@ -230,60 +241,59 @@ impl DefaultStdoutSink {
 
     /// 格式化事件为 JSON
     fn format_as_json(&self, event: &QuantumLogEvent) -> SinkResult<String> {
-        let mut json_event = serde_json::Map::new();
+        let mut json_event = serde_json::Map::with_capacity(10);
 
         // 基本字段
         json_event.insert(
-            "timestamp".to_string(),
+            "timestamp".into(),
             serde_json::Value::String(event.timestamp.to_rfc3339()),
         );
         json_event.insert(
-            "level".to_string(),
+            "level".into(),
             serde_json::Value::String(event.level.clone()),
         );
         json_event.insert(
-            "message".to_string(),
+            "message".into(),
             serde_json::Value::String(event.message.clone()),
         );
 
         // 可选字段
         if let Some(module) = &event.module_path {
             json_event.insert(
-                "module".to_string(),
+                "module".into(),
                 serde_json::Value::String(module.clone()),
             );
         }
         if let Some(file) = &event.file {
-            json_event.insert("file".to_string(), serde_json::Value::String(file.clone()));
+            json_event.insert("file".into(), serde_json::Value::String(file.clone()));
         }
         if let Some(line) = event.line {
             json_event.insert(
-                "line".to_string(),
+                "line".into(),
                 serde_json::Value::Number(serde_json::Number::from(line)),
             );
         }
         // 添加线程信息
         // 添加线程信息
         json_event.insert(
-            "thread_id".to_string(),
+            "thread_id".into(),
             serde_json::Value::String(event.context.tid.to_string()),
         );
 
         // 自定义前缀
         if let Some(prefix) = &self.config.prefix {
             json_event.insert(
-                "prefix".to_string(),
+                "prefix".into(),
                 serde_json::Value::String(prefix.clone()),
             );
         }
 
         // 字段
         if !event.fields.is_empty() {
-            let mut fields_map = serde_json::Map::new();
-            for (key, value) in &event.fields {
-                fields_map.insert(key.clone(), value.clone());
-            }
-            json_event.insert("fields".to_string(), serde_json::Value::Object(fields_map));
+            let fields_map: serde_json::Map<String, serde_json::Value> = event.fields.iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            json_event.insert("fields".into(), serde_json::Value::Object(fields_map));
         }
 
         serde_json::to_string(&json_event).map_err(|e| SinkError::Serialization(e.to_string()))
@@ -291,20 +301,32 @@ impl DefaultStdoutSink {
 
     /// 格式化事件为 CSV
     fn format_as_csv(&self, event: &QuantumLogEvent) -> SinkResult<String> {
-        let mut csv_fields = vec![
-            // 基本字段
-            self.escape_csv_field(&event.timestamp.to_rfc3339()),
-            self.escape_csv_field(&event.level),
-            self.escape_csv_field(&event.message),
-            // 可选字段
-            self.escape_csv_field(event.module_path.as_deref().unwrap_or("")),
-            self.escape_csv_field(event.file.as_deref().unwrap_or("")),
-            self.escape_csv_field(event.line.map(|l| l.to_string()).as_deref().unwrap_or("")),
-            self.escape_csv_field(&event.context.tid.to_string()),
-            self.escape_csv_field(""), // 保持 CSV 格式一致性
-            // 自定义前缀
-            self.escape_csv_field(self.config.prefix.as_deref().unwrap_or("")),
-        ];
+        let mut csv_fields = Vec::with_capacity(10);
+        
+        // 基本字段
+        csv_fields.push(self.escape_csv_field(&event.timestamp.to_rfc3339()));
+        csv_fields.push(self.escape_csv_field(&event.level));
+        csv_fields.push(self.escape_csv_field(&event.message));
+        // 可选字段
+        csv_fields.push(self.escape_csv_field(event.module_path.as_deref().unwrap_or("")));
+        csv_fields.push(self.escape_csv_field(event.file.as_deref().unwrap_or("")));
+        
+        // 行号处理 - 避免不必要的字符串分配
+        let line_str;
+        let line_field = if let Some(line) = event.line {
+            line_str = line.to_string();
+            &line_str
+        } else {
+            ""
+        };
+        csv_fields.push(self.escape_csv_field(line_field));
+        
+        // 线程ID - 避免不必要的字符串分配
+        let tid_str = event.context.tid.to_string();
+        csv_fields.push(self.escape_csv_field(&tid_str));
+        csv_fields.push(self.escape_csv_field(""));  // 保持 CSV 格式一致性
+        // 自定义前缀
+        csv_fields.push(self.escape_csv_field(self.config.prefix.as_deref().unwrap_or("")));
 
         // 字段（序列化为JSON字符串）
         let fields_json = if event.fields.is_empty() {

@@ -122,6 +122,24 @@ impl FileWriter {
             .map_err(|e| QuantumLogError::InternalError(format!("Failed to flush file: {}", e)))
     }
 
+    /// 关闭文件写入器
+    pub async fn close(&self) -> Result<()> {
+        // 先刷新缓冲区
+        self.flush().await?;
+        
+        // 获取写入器的锁并显式关闭文件
+        let mut writer = self.writer.lock().await;
+        
+        // 刷新并关闭底层文件
+        if let Err(e) = writer.flush() {
+            return Err(QuantumLogError::InternalError(format!("Failed to flush before close: {}", e)));
+        }
+        
+        // 注意：BufWriter<File> 在 Drop 时会自动关闭文件
+        // 这里我们只需要确保数据被刷新即可
+        Ok(())
+    }
+
     /// 检查是否需要轮转
     async fn should_rotate(&self, additional_size: usize) -> Result<bool> {
         match &self.config.rotation {

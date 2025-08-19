@@ -308,10 +308,26 @@ impl ConsoleSinkProcessor {
     }
 
     /// 关闭处理器
-    fn shutdown(&self) -> Result<()> {
+    fn shutdown(mut self) -> Result<()> {
         // 刷新输出流
         let _ = io::stdout().flush();
         let _ = io::stderr().flush();
+
+        // 关闭接收器并处理剩余消息
+        self.receiver.close();
+        
+        // 处理并丢弃所有剩余的未处理消息
+        while let Ok(msg) = self.receiver.try_recv() {
+            match msg {
+                SinkMessage::Event(_) => {
+                    // 丢弃剩余事件
+                }
+                SinkMessage::Shutdown(sender) => {
+                    // 响应关闭请求
+                    let _ = sender.send(Ok(()));
+                }
+            }
+        }
 
         tracing::info!("ConsoleSink shutdown completed");
         Ok(())

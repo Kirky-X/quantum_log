@@ -263,18 +263,24 @@ impl RollingFileSinkProcessor {
     /// 生成文件键
     fn generate_file_key(&self, event: &QuantumLogEvent) -> String {
         match &self.config.separation_strategy {
-            crate::config::FileSeparationStrategy::None => "default".to_string(),
-            crate::config::FileSeparationStrategy::ByPid => format!("pid_{}", std::process::id()),
-            crate::config::FileSeparationStrategy::ByTid => {
-                format!("tid_{:?}", std::thread::current().id())
+            crate::config::FileSeparationStrategy::None => "default".to_owned(),
+            crate::config::FileSeparationStrategy::ByPid => {
+                let mut key = String::with_capacity(16);
+                key.push_str("pid_");
+                key.push_str(&std::process::id().to_string());
+                key
             }
-            crate::config::FileSeparationStrategy::ByMpiRank => "mpi_rank".to_string(),
-            crate::config::FileSeparationStrategy::Level => event.level.to_string(),
-            crate::config::FileSeparationStrategy::Module => event
-                .module_path
-                .as_deref()
-                .unwrap_or("unknown")
-                .to_string(),
+            crate::config::FileSeparationStrategy::ByTid => {
+                let mut key = String::with_capacity(32);
+                key.push_str("tid_");
+                key.push_str(&format!("{:?}", std::thread::current().id()));
+                key
+            }
+            crate::config::FileSeparationStrategy::ByMpiRank => "mpi_rank".to_owned(),
+            crate::config::FileSeparationStrategy::Level => event.level.clone(),
+            crate::config::FileSeparationStrategy::Module => {
+                event.module_path.as_deref().unwrap_or("unknown").to_owned()
+            }
             crate::config::FileSeparationStrategy::Time => {
                 event.timestamp.format("%Y%m%d_%H").to_string()
             }
@@ -283,39 +289,49 @@ impl RollingFileSinkProcessor {
 
     /// 生成文件路径
     fn generate_file_path(&self, event: &QuantumLogEvent, _file_key: &str) -> Result<PathBuf> {
+        let extension = self.config.extension.as_deref().unwrap_or("log");
+        
         match &self.config.separation_strategy {
             crate::config::FileSeparationStrategy::None => {
-                let filename = format!(
-                    "{}.{}",
-                    self.config.filename_base,
-                    self.config.extension.as_deref().unwrap_or("log")
+                let mut filename = String::with_capacity(
+                    self.config.filename_base.len() + extension.len() + 1
                 );
+                filename.push_str(&self.config.filename_base);
+                filename.push('.');
+                filename.push_str(extension);
                 Ok(self.config.directory.join(filename))
             }
             crate::config::FileSeparationStrategy::ByPid => {
-                let filename = format!(
-                    "{}_{}.{}",
-                    self.config.filename_base,
-                    std::process::id(),
-                    self.config.extension.as_deref().unwrap_or("log")
+                let pid_str = std::process::id().to_string();
+                let mut filename = String::with_capacity(
+                    self.config.filename_base.len() + pid_str.len() + extension.len() + 2
                 );
+                filename.push_str(&self.config.filename_base);
+                filename.push('_');
+                filename.push_str(&pid_str);
+                filename.push('.');
+                filename.push_str(extension);
                 Ok(self.config.directory.join(filename))
             }
             crate::config::FileSeparationStrategy::ByTid => {
-                let filename = format!(
-                    "{}_{:?}.{}",
-                    self.config.filename_base,
-                    std::thread::current().id(),
-                    self.config.extension.as_deref().unwrap_or("log")
+                let tid_str = format!("{:?}", std::thread::current().id());
+                let mut filename = String::with_capacity(
+                    self.config.filename_base.len() + tid_str.len() + extension.len() + 2
                 );
+                filename.push_str(&self.config.filename_base);
+                filename.push('_');
+                filename.push_str(&tid_str);
+                filename.push('.');
+                filename.push_str(extension);
                 Ok(self.config.directory.join(filename))
             }
             crate::config::FileSeparationStrategy::ByMpiRank => {
-                let filename = format!(
-                    "{}_mpi.{}",
-                    self.config.filename_base,
-                    self.config.extension.as_deref().unwrap_or("log")
+                let mut filename = String::with_capacity(
+                    self.config.filename_base.len() + extension.len() + 5 // "_mpi."
                 );
+                filename.push_str(&self.config.filename_base);
+                filename.push_str("_mpi.");
+                filename.push_str(extension);
                 Ok(self.config.directory.join(filename))
             }
             crate::config::FileSeparationStrategy::Level => Ok(self

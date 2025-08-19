@@ -38,7 +38,12 @@ impl StdoutSink {
 
     /// Shuts down the stdout sink
     pub async fn shutdown(self) -> Result<(), QuantumLogError> {
-        // Stdout sink doesn't need special shutdown logic
+        // 刷新标准输出流以确保所有数据都被写入
+        if let Err(e) = io::stdout().flush() {
+            tracing::warn!("Failed to flush stdout during shutdown: {}", e);
+        }
+        
+        tracing::info!("StdoutSink shutdown completed");
         Ok(())
     }
 

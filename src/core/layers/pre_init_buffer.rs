@@ -67,7 +67,14 @@ impl PreInitBufferLayer {
 
     /// 创建默认的预初始化缓冲层
     pub fn new_default() -> Self {
-        Self::new(10000) // 默认缓冲 10000 个事件
+        Self::new(1000) // 默认缓冲 1000 个事件（降低内存使用）
+    }
+
+    /// 创建安全的预初始化缓冲层，带有严格的大小限制
+    pub fn new_safe(max_buffer_size: usize) -> Self {
+        // 限制最大缓冲区大小，防止内存溢出
+        let safe_size = std::cmp::min(max_buffer_size, 50_000);
+        Self::new(safe_size)
     }
 
     /// 禁用缓冲层
@@ -136,11 +143,26 @@ impl PreInitBufferLayer {
             return;
         }
 
-        // 检查缓冲区大小
+        // 检查缓冲区大小，防止无限增长
         if buffer.events.len() >= self.max_buffer_size {
             // 移除最旧的事件
             buffer.events.pop_front();
             buffer.dropped_count += 1;
+            
+            // 如果丢弃事件过多，记录警告
+            if buffer.dropped_count % 1000 == 0 {
+                eprintln!("WARNING: PreInitBuffer has dropped {} events due to overflow", buffer.dropped_count);
+            }
+        }
+        
+        // 额外的安全检查：如果缓冲区仍然过大，强制清理
+        if buffer.events.len() > self.max_buffer_size * 2 {
+            let excess = buffer.events.len() - self.max_buffer_size;
+            for _ in 0..excess {
+                buffer.events.pop_front();
+                buffer.dropped_count += 1;
+            }
+            eprintln!("CRITICAL: PreInitBuffer forced cleanup, dropped {} additional events", excess);
         }
 
         // 提取事件信息

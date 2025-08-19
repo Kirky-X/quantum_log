@@ -12,7 +12,7 @@ use quantum_log::{
     sinks::{
         default_stdout::{DefaultStdoutConfig, DefaultStdoutSink, StdoutTarget},
         traits::{ExclusiveSink, QuantumSink, SinkError, SinkMetadata, SinkType, StackableSink},
-        ErrorStrategy, Pipeline, PipelineConfig, PipelineBuilder,
+        ErrorStrategy, Pipeline, PipelineBuilder, PipelineConfig,
     },
 };
 use std::collections::HashMap;

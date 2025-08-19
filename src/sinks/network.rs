@@ -16,6 +16,28 @@ use tokio::task::JoinHandle;
 use tokio::time::{timeout, Duration};
 use tracing::Level;
 
+// 预定义错误消息常量以避免运行时字符串分配
+const TCP_WRITE_ERROR: &str = "TCP write failed";
+const TCP_FLUSH_ERROR: &str = "TCP flush failed";
+const TLS_WRITE_ERROR: &str = "TLS write failed";
+const TLS_FLUSH_ERROR: &str = "TLS flush failed";
+const UDP_SEND_ERROR: &str = "UDP send failed";
+const NO_CONNECTION_ERROR: &str = "No active connection";
+const SINK_ALREADY_STARTED: &str = "Sink already started";
+const CONNECTION_TIMEOUT_ERROR: &str = "Connection timeout";
+const MAX_RECONNECT_ERROR: &str = "Max reconnection attempts (5) exceeded";
+const NETWORK_SINK_NOT_STARTED: &str = "NetworkSink not started";
+const SHUTDOWN_SIGNAL_FAILED: &str = "Failed to send shutdown signal";
+const SHUTDOWN_SIGNAL_LOST: &str = "Shutdown signal lost";
+const NEWLINE_BYTES: &[u8] = b"\n";
+
+#[cfg(feature = "tls")]
+use tokio_rustls::{TlsConnector, client::TlsStream};
+#[cfg(feature = "tls")]
+use rustls::{ClientConfig, RootCertStore};
+#[cfg(feature = "tls")]
+use std::sync::Arc as StdArc;
+
 /// 网络 Sink
 #[derive(Debug)]
 pub struct NetworkSink {
@@ -39,6 +61,9 @@ enum SinkMessage {
 enum NetworkConnection {
     /// TCP 连接
     Tcp(Arc<Mutex<BufWriter<TcpStream>>>),
+    /// TLS 加密的 TCP 连接
+    #[cfg(feature = "tls")]
+    Tls(Arc<Mutex<BufWriter<TlsStream<TcpStream>>>>),
     /// UDP 套接字
     Udp(Arc<UdpSocket>, SocketAddr),
 }
@@ -78,7 +103,7 @@ impl NetworkSink {
     pub async fn start(&mut self) -> Result<()> {
         if self.sender.is_some() {
             return Err(QuantumLogError::ConfigError(
-                "Sink already started".to_string(),
+                SINK_ALREADY_STARTED.into(),
             ));
         }
 
@@ -110,7 +135,7 @@ impl NetworkSink {
             })?;
         } else {
             return Err(QuantumLogError::SinkError(
-                "NetworkSink not started".to_string(),
+                NETWORK_SINK_NOT_STARTED.into(),
             ));
         }
         Ok(())
@@ -124,7 +149,7 @@ impl NetworkSink {
             // 发送关闭信号
             if sender.send(SinkMessage::Shutdown(tx)).await.is_err() {
                 return Err(QuantumLogError::SinkError(
-                    "Failed to send shutdown signal".to_string(),
+                    SHUTDOWN_SIGNAL_FAILED.into(),
                 ));
             }
 
@@ -133,7 +158,7 @@ impl NetworkSink {
                 Ok(result) => result?,
                 Err(_) => {
                     return Err(QuantumLogError::SinkError(
-                        "Shutdown signal lost".to_string(),
+                        SHUTDOWN_SIGNAL_LOST.into(),
                     ))
                 }
             }
@@ -193,15 +218,30 @@ impl NetworkSinkProcessor {
                     TcpStream::connect(socket_addr),
                 )
                 .await
-                .map_err(|_| QuantumLogError::NetworkError("Connection timeout".to_string()))?
+                .map_err(|_| QuantumLogError::NetworkError(CONNECTION_TIMEOUT_ERROR.into()))?
                 .map_err(|e| {
                     QuantumLogError::NetworkError(format!("TCP connection failed: {}", e))
                 })?;
 
-                let writer = BufWriter::new(stream);
-                self.connection = Some(NetworkConnection::Tcp(Arc::new(Mutex::new(writer))));
-
-                tracing::info!("TCP connection established to {}", address);
+                // 检查是否需要TLS加密
+                #[cfg(feature = "tls")]
+                if self.config.use_tls.unwrap_or(false) {
+                    let tls_stream = self.establish_tls_connection(stream).await?;
+                    let writer = BufWriter::new(tls_stream);
+                    self.connection = Some(NetworkConnection::Tls(Arc::new(Mutex::new(writer))));
+                    tracing::info!("TLS connection established to {}", address);
+                } else {
+                    let writer = BufWriter::new(stream);
+                    self.connection = Some(NetworkConnection::Tcp(Arc::new(Mutex::new(writer))));
+                    tracing::info!("TCP connection established to {}", address);
+                }
+                
+                #[cfg(not(feature = "tls"))]
+                {
+                    let writer = BufWriter::new(stream);
+                    self.connection = Some(NetworkConnection::Tcp(Arc::new(Mutex::new(writer))));
+                    tracing::info!("TCP connection established to {}", address);
+                }
             }
             NetworkProtocol::Udp => {
                 let socket = UdpSocket::bind("0.0.0.0:0").await.map_err(|e| {
@@ -222,12 +262,45 @@ impl NetworkSinkProcessor {
         Ok(())
     }
 
+    /// 建立TLS连接
+    #[cfg(feature = "tls")]
+    async fn establish_tls_connection(&self, stream: TcpStream) -> Result<TlsStream<TcpStream>> {
+        // 创建TLS配置
+        let mut root_store = RootCertStore::empty();
+        root_store.add_server_trust_anchors(
+            webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
+                rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
+                    ta.subject,
+                    ta.spki,
+                    ta.name_constraints,
+                )
+            })
+        );
+        
+        let config = ClientConfig::builder()
+            .with_safe_defaults()
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+            
+        let connector = TlsConnector::from(StdArc::new(config));
+        
+        // 获取服务器名称
+        let server_name = rustls::ServerName::try_from(self.config.host.as_str())
+            .map_err(|e| QuantumLogError::NetworkError(format!("Invalid server name: {}", e)))?;
+            
+        // 建立TLS连接
+        let tls_stream = connector.connect(server_name, stream).await
+            .map_err(|e| QuantumLogError::NetworkError(format!("TLS handshake failed: {}", e)))?;
+            
+        Ok(tls_stream)
+    }
+
     /// 重连
     async fn reconnect(&mut self) -> Result<()> {
         // 检查最大重试次数（固定为5次）
         if self.reconnect_count >= 5 {
             return Err(QuantumLogError::NetworkError(
-                "Max reconnection attempts (5) exceeded".to_string(),
+                MAX_RECONNECT_ERROR.into(),
             ));
         }
 
@@ -293,24 +366,38 @@ impl NetworkSinkProcessor {
             Some(NetworkConnection::Tcp(writer_arc)) => {
                 let mut writer = writer_arc.lock().await;
                 writer.write_all(data).await.map_err(|e| {
-                    QuantumLogError::NetworkError(format!("TCP write failed: {}", e))
+                    QuantumLogError::NetworkError(format!("{}: {}", TCP_WRITE_ERROR, e))
                 })?;
-                writer.write_all(b"\n").await.map_err(|e| {
-                    QuantumLogError::NetworkError(format!("TCP write failed: {}", e))
+                writer.write_all(NEWLINE_BYTES).await.map_err(|e| {
+                    QuantumLogError::NetworkError(format!("{}: {}", TCP_WRITE_ERROR, e))
                 })?;
 
                 writer.flush().await.map_err(|e| {
-                    QuantumLogError::NetworkError(format!("TCP flush failed: {}", e))
+                    QuantumLogError::NetworkError(format!("{}: {}", TCP_FLUSH_ERROR, e))
+                })?;
+            }
+            #[cfg(feature = "tls")]
+            Some(NetworkConnection::Tls(writer_arc)) => {
+                let mut writer = writer_arc.lock().await;
+                writer.write_all(data).await.map_err(|e| {
+                    QuantumLogError::NetworkError(format!("{}: {}", TLS_WRITE_ERROR, e))
+                })?;
+                writer.write_all(NEWLINE_BYTES).await.map_err(|e| {
+                    QuantumLogError::NetworkError(format!("{}: {}", TLS_WRITE_ERROR, e))
+                })?;
+
+                writer.flush().await.map_err(|e| {
+                    QuantumLogError::NetworkError(format!("{}: {}", TLS_FLUSH_ERROR, e))
                 })?;
             }
             Some(NetworkConnection::Udp(socket, addr)) => {
                 socket.send_to(data, addr).await.map_err(|e| {
-                    QuantumLogError::NetworkError(format!("UDP send failed: {}", e))
+                    QuantumLogError::NetworkError(format!("{}: {}", UDP_SEND_ERROR, e))
                 })?;
             }
             None => {
                 return Err(QuantumLogError::NetworkError(
-                    "No active connection".to_string(),
+                    NO_CONNECTION_ERROR.into(),
                 ));
             }
         }
@@ -327,24 +414,90 @@ impl NetworkSinkProcessor {
                 .map_err(|e| QuantumLogError::SerializationError { source: e }),
             crate::config::OutputFormat::Csv => {
                 let csv_row = event.to_csv_row();
-                Ok(csv_row.join(","))
+                // 使用预估容量避免多次重新分配
+                let estimated_capacity = csv_row.iter().map(|s| s.len()).sum::<usize>() + csv_row.len();
+                let mut result = String::with_capacity(estimated_capacity);
+                for (i, field) in csv_row.iter().enumerate() {
+                    if i > 0 {
+                        result.push(',');
+                    }
+                    result.push_str(field);
+                }
+                Ok(result)
             }
         }
     }
 
     /// 关闭处理器
     async fn shutdown(&mut self) -> Result<()> {
-        // 刷新连接
-        if let Some(NetworkConnection::Tcp(writer_arc)) = &self.connection {
-            let mut writer = writer_arc.lock().await;
-            if let Err(e) = writer.flush().await {
-                tracing::error!("Error flushing TCP connection: {}", e);
+        // 刷新并关闭连接
+        match self.connection.take() {
+            Some(NetworkConnection::Tcp(writer_arc)) => {
+                // 尝试获取独占访问权限来正确关闭连接
+                match Arc::try_unwrap(writer_arc) {
+                    Ok(writer_mutex) => {
+                        let mut writer = writer_mutex.into_inner();
+                        if let Err(e) = writer.flush().await {
+                            tracing::error!("Error flushing TCP connection: {}", e);
+                        }
+                        // 获取底层的 TcpStream 并关闭
+                        let mut stream = writer.into_inner();
+                        if let Err(e) = stream.shutdown().await {
+                            tracing::error!("Error shutting down TCP stream: {}", e);
+                        } else {
+                            tracing::debug!("TCP connection closed successfully");
+                        }
+                    }
+                    Err(writer_arc) => {
+                        // 如果还有其他引用，只能刷新
+                        let mut writer = writer_arc.lock().await;
+                        if let Err(e) = writer.flush().await {
+                            tracing::error!("Error flushing TCP connection (shared): {}", e);
+                        }
+                        tracing::warn!("TCP connection has multiple references, cannot close properly");
+                    }
+                }
+            }
+            #[cfg(feature = "tls")]
+            Some(NetworkConnection::Tls(writer_arc)) => {
+                // 尝试获取独占访问权限来正确关闭TLS连接
+                match Arc::try_unwrap(writer_arc) {
+                    Ok(writer_mutex) => {
+                        let mut writer = writer_mutex.into_inner();
+                        if let Err(e) = writer.flush().await {
+                            tracing::error!("Error flushing TLS connection: {}", e);
+                        }
+                        // 获取底层的 TlsStream 并关闭
+                        let tls_stream = writer.into_inner();
+                        let (_, tcp_stream) = tls_stream.into_inner();
+                        if let Err(e) = tcp_stream.shutdown().await {
+                            tracing::error!("Error shutting down TLS stream: {}", e);
+                        } else {
+                            tracing::debug!("TLS connection closed successfully");
+                        }
+                    }
+                    Err(writer_arc) => {
+                        // 如果还有其他引用，只能刷新
+                        let mut writer = writer_arc.lock().await;
+                        if let Err(e) = writer.flush().await {
+                            tracing::error!("Error flushing TLS connection (shared): {}", e);
+                        }
+                        tracing::warn!("TLS connection has multiple references, cannot close properly");
+                    }
+                }
+            }
+            Some(NetworkConnection::Udp(socket, _)) => {
+                // UDP 套接字会在 Arc 被 drop 时自动关闭
+                // 但我们可以显式记录关闭信息
+                tracing::debug!("UDP socket will be closed when Arc is dropped");
+                drop(socket); // 显式 drop
+            }
+            None => {
+                tracing::debug!("No connection to close");
             }
         }
 
-        self.connection = None;
         tracing::info!("NetworkSink shutdown completed");
-
         Ok(())
     }
 }
