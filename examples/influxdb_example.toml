@@ -1,0 +1,55 @@
+# QuantumLog 配置文件示例 - InfluxDB 输出
+
+# 全局日志级别
+global_level = "INFO"
+
+# 预初始化缓冲区大小
+pre_init_buffer_size = 1000
+
+# 预初始化标准输出启用
+pre_init_stdout_enabled = true
+
+# 背压处理策略 ("Block" 或 "Drop")
+backpressure_strategy = "Drop"
+
+# 标准输出配置
+[stdout]
+enabled = true
+level = "INFO"
+color_enabled = true
+
+# InfluxDB 配置
+[influxdb]
+enabled = true
+level = "INFO"
+url = "http://localhost:8086"
+database = "quantum_logs"
+# 对于 InfluxDB 2.x，使用 token 认证
+# token = "your-influxdb-token"
+# 对于 InfluxDB 1.x，使用用户名/密码认证
+username = "quantum_user"
+password = "quantum_password"
+batch_size = 100
+flush_interval_seconds = 5
+use_https = false
+verify_ssl = true
+
+# 上下文字段配置
+[context_fields]
+timestamp = true
+level = true
+target = true
+file_line = true
+pid = true
+tid = true
+mpi_rank = false
+username = true
+hostname = true
+span_info = false
+
+# 日志格式配置
+[format]
+timestamp_format = "%Y-%m-%d %H:%M:%S%.3f"
+template = "{timestamp} [{level}] {target} - {message}"
+json_flatten_fields = false
+json_fields_key = "fields"

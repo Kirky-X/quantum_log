@@ -24,7 +24,7 @@ tracing-appender = "0.2"
 
 # Async runtime
  tokio = { version = "1.45", features = ["full"] }
- tokio-util = { version = "0.7", features = ["codec"] }
+ tokio-util = { version = "0.7", features = ["codec", "time"], optional = true }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -48,6 +48,16 @@ openssl-sys = { version = "0.9", features = ["vendored"], optional = true }
 # Terminal colors
 colored = "3.0"
 
+# TLS support (optional)
+tokio-rustls = { version = "0.26", optional = true }
+rustls = { version = "0.23", optional = true }
+rustls-pemfile = { version = "2.1", optional = true }
+webpki-roots = { version = "0.26", optional = true }
+ring = { version = "0.17", optional = true }
+secrecy = { version = "0.8", optional = true }
+hex = "0.4"
+# tokio-util dependency moved above to avoid duplication
+
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
 
@@ -57,6 +67,7 @@ anyhow = "1.0"
 
 # Async traits
 async-trait = "0.1"
+futures = "0.3"
 
 # Global state
 once_cell = "1.21"
@@ -69,6 +80,10 @@ moka = { version = "0.12", features = ["future"] }
 
 # Dynamic library loading for MPI
 libloading = { version = "0.8", optional = true }
+
+# HTTP client for InfluxDB
+reqwest = { version = "0.12", features = ["json"] }
+base64 = "0.22"
 
 # Async trait support
 
@@ -102,10 +117,11 @@ inherits = "release"
 debug = true
 
 [features]
-default = []
+default = ["tokio-util"]
 database = ["diesel", "r2d2"]
 mpi_support = []
 dynamic_mpi = ["libloading"]
+tls = ["tokio-rustls", "rustls", "rustls-pemfile", "webpki-roots", "ring", "secrecy", "tokio-util"]
 sqlite = ["database", "diesel/sqlite", "libsqlite3-sys/bundled"]
 postgres = ["database", "diesel/postgres", "pq-sys/bundled", "openssl-sys/vendored"]
 mysql = ["database", "diesel/mysql", "mysqlclient-sys/bundled", "openssl-sys/vendored"]

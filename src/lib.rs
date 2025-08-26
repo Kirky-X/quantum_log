@@ -49,6 +49,7 @@
 pub mod config;
 pub mod core;
 pub mod diagnostics;
+pub mod env_config;
 pub mod error;
 pub mod mpi;
 pub mod shutdown;
@@ -118,7 +119,7 @@ pub async fn init() -> Result<()> {
     let _ = init_diagnostics();
 
     let config = QuantumLogConfig {
-        pre_init_stdout_enabled: true,
+        pre_init_stdout_enabled: false,
         stdout: Some(crate::config::StdoutConfig {
             enabled: true,
             ..Default::default()

@@ -2,7 +2,6 @@
 //!
 //! 提供获取系统背景信息的函数，包括进程ID、线程ID、用户名、主机名等。
 
-use std::ffi::OsString;
 
 #[cfg(windows)]
 use std::os::windows::ffi::OsStringExt;

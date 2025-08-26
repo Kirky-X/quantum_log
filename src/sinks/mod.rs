@@ -24,6 +24,9 @@ pub mod traits;
 #[cfg(feature = "database")]
 pub mod database;
 
+// InfluxDB功能
+pub mod influxdb;
+
 // 重新导出主要类型
 pub use console::ConsoleSink;
 pub use file::FileSink;
@@ -38,5 +41,8 @@ pub use traits::{
 
 #[cfg(feature = "database")]
 pub use database::DatabaseSink;
+
+// InfluxDB Sink
+pub use influxdb::InfluxDBSink;
 
 // 可叠加型 Sink 仅供包内部使用，不对外公开

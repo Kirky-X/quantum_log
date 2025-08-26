@@ -371,10 +371,10 @@ impl FileTools {
     ///
     /// 如果空间足够返回 `true`，否则返回 `false`
     #[cfg(unix)]
-    pub fn has_sufficient_disk_space<P: AsRef<Path>>(path: P, required_bytes: u64) -> bool {
-        use std::os::unix::fs::MetadataExt;
+    pub fn has_sufficient_disk_space<P: AsRef<Path>>(path: P, _required_bytes: u64) -> bool {
+        
 
-        if let Ok(metadata) = fs::metadata(path) {
+        if let Ok(_metadata) = fs::metadata(path) {
             // 在Unix系统上，可以通过statvfs获取更准确的磁盘空间信息
             // 这里简化处理，假设有足够空间
             true

@@ -24,7 +24,7 @@ span_info = true                        # 包含span信息
 [format]
 format_type = "Json"                    # 格式类型: "Json" 或 "Text"
 timestamp_format = "%Y-%m-%d %H:%M:%S%.3f"  # 时间戳格式
-log_template = "{timestamp} [{level}] {target} - {message}"  # 文本格式模板
+template = "{timestamp} [{level}] {target} - {message}"  # 文本格式模板
 json_fields_key = "fields"              # JSON格式中字段的键名
 
 # 标准输出配置
@@ -34,11 +34,7 @@ level = "INFO"                          # 标准输出的日志级别
 color_enabled = true                    # 是否启用颜色
 colored = true                          # 是否使用颜色
 
-[stdout.format]
-format_type = "Text"                    # 标准输出格式类型
-timestamp_format = "%Y-%m-%d %H:%M:%S%.3f"
-log_template = "{timestamp} [{level}] {target} - {message}"
-json_fields_key = "data"
+format = "Text"                        # 标准输出格式类型: "Text", "Json", "Csv"
 
 # 文件输出配置
 [file]
@@ -65,11 +61,11 @@ compress_rotated_files = false          # 是否压缩轮转的文件
 [database]
 enabled = false                         # 是否启用数据库输出
 level = "WARN"                          # 数据库输出的日志级别
-database_type = "PostgreSQL"            # 数据库类型: "PostgreSQL", "MySQL", "SQLite"
+db_type = "Postgresql"            # 数据库类型: "Postgresql", "Mysql", "Sqlite"
 connection_string = "postgresql://user:password@localhost:5432/logs"  # 数据库连接字符串
 table_name = "quantum_logs"             # 日志表名
 batch_size = 100                        # 批处理大小
-pool_size = 5                           # 连接池大小
+connection_pool_size = 5                           # 连接池大小
 connection_timeout_ms = 5000            # 连接超时（毫秒）
 auto_create_table = true                # 是否自动创建表
 

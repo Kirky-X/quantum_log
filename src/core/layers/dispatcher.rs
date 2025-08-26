@@ -8,6 +8,7 @@ use crate::diagnostics::get_diagnostics_instance;
 use crate::error::Result;
 #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
 use crate::sinks::database::DatabaseSink;
+use crate::sinks::influxdb::InfluxDBSink;
 use crate::sinks::stdout::StdoutSink;
 use crate::sinks::traits::{QuantumSink, SinkError, StackableSink};
 use std::sync::Arc;
@@ -22,6 +23,7 @@ pub enum SinkType {
     Stdout(StdoutSink),
     #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
     Database(DatabaseSink),
+    InfluxDB(InfluxDBSink),
     // 未来会添加更多类型
     // File(FileSinkProcessor),
 }
@@ -55,6 +57,7 @@ enum SinkProcessorInner {
     Stdout(Arc<StdoutSink>),
     #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
     Database(Arc<DatabaseSink>),
+    InfluxDB(Arc<InfluxDBSink>),
     // 未来会添加更多类型
 }
 
@@ -102,6 +105,26 @@ impl DispatcherLayer {
                     }
                     Err(e) => {
                         eprintln!("Failed to initialize database sink: {}", e);
+                    }
+                }
+            }
+        }
+
+        // 初始化 InfluxDB Sink
+        if let Some(ref influxdb_config) = self.config.influxdb {
+            if influxdb_config.enabled {
+                let mut processor = InfluxDBSink::new(influxdb_config.clone());
+                match processor.start().await {
+                    Ok(()) => {
+                        sinks.push(SinkProcessor {
+                            sink_type: "influxdb".to_string(),
+                            enabled: true,
+                            backpressure_strategy: self.config.backpressure_strategy.clone(),
+                            processor: SinkProcessorInner::InfluxDB(Arc::new(processor)),
+                        });
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to initialize InfluxDB sink: {}", e);
                     }
                 }
             }
@@ -158,6 +181,24 @@ impl DispatcherLayer {
                                 enabled: sink.enabled,
                                 backpressure_strategy: sink.backpressure_strategy,
                                 processor: SinkProcessorInner::Database(arc_processor),
+                            });
+                        }
+                    }
+                }
+                SinkProcessorInner::InfluxDB(processor) => {
+                    // 尝试从 Arc 中提取处理器
+                    match Arc::try_unwrap(processor) {
+                        Ok(processor) => {
+                            let task = tokio::spawn(async move { processor.shutdown().await });
+                            shutdown_tasks.push(task);
+                        }
+                        Err(arc_processor) => {
+                            // 如果还有其他引用，我们无法停机，保留它
+                            remaining_sinks.push(SinkProcessor {
+                                sink_type: sink.sink_type,
+                                enabled: sink.enabled,
+                                backpressure_strategy: sink.backpressure_strategy,
+                                processor: SinkProcessorInner::InfluxDB(arc_processor),
                             });
                         }
                     }
@@ -285,6 +326,12 @@ impl DispatcherLayer {
                         .await
                         .map_err(|e| SinkError::Generic(e.to_string()))
                 }
+                SinkProcessorInner::InfluxDB(processor) => {
+                    // For InfluxDB sink, use regular QuantumSink::send_event
+                    QuantumSink::send_event(processor.as_ref(), quantum_event_clone)
+                        .await
+                        .map_err(|e| SinkError::Generic(e.to_string()))
+                }
             };
 
             // Update diagnostics based on the result
@@ -386,7 +433,13 @@ impl DispatcherLayer {
                     QuantumSink::send_event(processor.as_ref(), quantum_event_clone)
                         .await
                         .map_err(|e| SinkError::Generic(e.to_string()))
-                } // 未来会添加其他 Sink 类型的处理
+                }
+                SinkProcessorInner::InfluxDB(processor) => {
+                    // For InfluxDB sink, use the send_event method
+                    processor.send_event(quantum_event_clone)
+                        .await
+                        .map_err(|e| SinkError::Generic(e.to_string()))
+                }
             };
 
             // Update diagnostics based on the result
@@ -441,6 +494,7 @@ mod tests {
             database: None,
             network: None,
             level_file: None,
+            influxdb: None,
             context_fields: Default::default(),
             format: Default::default(),
         }

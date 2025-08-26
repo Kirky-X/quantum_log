@@ -33,7 +33,7 @@ tracing = "0.1"
 # Optional features
 [dependencies.quantum_log]
 version = "0.3.1"
-features = ["database", "mpi_support"]  # Enable database and MPI support
+features = ["database", "mpi_support", "tls"]  # Enable database, MPI and TLS support
 ```
 
 ## 🎯 Quick Start
@@ -87,6 +87,11 @@ QuantumLog 0.3.1 brings stronger features and better stability. Key changes:
 
 **🔒 Security Hardening**
 - Database connection string sanitization: prevent sensitive information leakage
+- **TLS Network Encryption**: Comprehensive TLS/SSL encryption support
+  - TLS certificate verification (server certificate and hostname verification)
+  - Custom CA certificate files and client certificate authentication
+  - Configurable TLS verification policies for enhanced network security
+- Network connection resilience: configurable reconnection attempts and delays
 - File permission security checks: ensure proper log file access permissions
 - Buffer overflow protection: enhance memory safety
 - Network transmission encryption support: improve data transmission security

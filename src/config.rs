@@ -32,6 +32,60 @@ fn default_file_sink_filename_base() -> String {
 fn default_file_buffer_size() -> usize {
     8192
 }
+
+// 网络相关默认值
+fn default_network_buffer_size() -> usize {
+    1000
+}
+
+fn default_network_timeout_ms() -> u64 {
+    30000
+}
+
+fn default_max_reconnect_attempts() -> usize {
+    5
+}
+
+fn default_reconnect_delay_ms() -> u64 {
+    1000
+}
+
+#[cfg(feature = "tls")]
+fn default_tls_verify_certificates() -> bool {
+    true
+}
+
+#[cfg(feature = "tls")]
+fn default_tls_verify_hostname() -> bool {
+    true
+}
+
+#[cfg(feature = "tls")]
+fn default_tls_min_version() -> TlsVersion {
+    TlsVersion::Tls13
+}
+
+#[cfg(feature = "tls")]
+fn default_tls_cipher_suite() -> TlsCipherSuite {
+    TlsCipherSuite::High
+}
+
+#[cfg(feature = "tls")]
+fn default_tls_require_sni() -> bool {
+    true
+}
+
+fn default_security_policy() -> SecurityPolicy {
+    SecurityPolicy::Strict
+}
+
+fn default_connection_rate_limit() -> u32 {
+    100 // 每秒最多100个连接
+}
+
+fn default_enable_security_audit() -> bool {
+    true
+}
 fn default_writer_cache_ttl_seconds() -> u64 {
     300
 } // 5 minutes
@@ -80,6 +134,8 @@ pub struct QuantumLoggerConfig {
     pub database: Option<DatabaseSinkConfig>,
     pub network: Option<NetworkConfig>,
     pub level_file: Option<LevelFileConfig>,
+    /// InfluxDB 配置
+    pub influxdb: Option<InfluxDBConfig>,
     #[serde(default)]
     pub context_fields: ContextFieldsConfig,
     #[serde(default)]
@@ -98,6 +154,7 @@ impl Default for QuantumLoggerConfig {
             database: None,
             network: None,
             level_file: None,
+            influxdb: None,
             context_fields: ContextFieldsConfig::default(),
             format: LogFormatConfig::default(),
         }
@@ -194,6 +251,39 @@ pub enum NetworkProtocol {
     Tcp,
     Udp,
     Http,
+}
+
+/// 安全策略级别
+#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
+pub enum SecurityPolicy {
+    /// 严格安全策略 - 生产环境推荐
+    Strict,
+    /// 平衡安全策略 - 开发环境推荐
+    Balanced,
+    /// 宽松安全策略 - 仅用于测试环境
+    Permissive,
+}
+
+/// TLS 最低版本要求
+#[cfg(feature = "tls")]
+#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
+pub enum TlsVersion {
+    /// TLS 1.2
+    Tls12,
+    /// TLS 1.3 (推荐)
+    Tls13,
+}
+
+/// TLS 密码套件安全级别
+#[cfg(feature = "tls")]
+#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
+pub enum TlsCipherSuite {
+    /// 高安全级别密码套件
+    High,
+    /// 中等安全级别密码套件
+    Medium,
+    /// 兼容性密码套件（不推荐生产环境）
+    Compatible,
 }
 
 /// 轮转策略（别名）
@@ -334,6 +424,45 @@ pub enum DatabaseType {
     Postgresql,
 }
 
+/// InfluxDB 配置
+#[derive(Deserialize, Debug, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct InfluxDBConfig {
+    #[serde(default = "default_false")]
+    pub enabled: bool,
+    pub level: Option<String>,
+    /// InfluxDB 服务器 URL
+    pub url: String,
+    /// 数据库名称
+    pub database: String,
+    /// 认证 Token (可选)
+    pub token: Option<String>,
+    /// 用户名 (可选，用于 InfluxDB 1.x)
+    pub username: Option<String>,
+    /// 密码 (可选，用于 InfluxDB 1.x)
+    pub password: Option<String>,
+    /// 批处理大小
+    #[serde(default = "default_influxdb_batch_size")]
+    pub batch_size: usize,
+    /// 批处理刷新间隔（秒）
+    #[serde(default = "default_influxdb_flush_interval")]
+    pub flush_interval_seconds: u64,
+    /// 是否使用 HTTPS
+    #[serde(default = "default_true")]
+    pub use_https: bool,
+    /// 是否验证 SSL 证书
+    #[serde(default = "default_true")]
+    pub verify_ssl: bool,
+}
+
+fn default_influxdb_batch_size() -> usize {
+    100
+}
+
+fn default_influxdb_flush_interval() -> u64 {
+    5
+}
+
 /// 文件配置（别名）
 pub type FileConfig = FileSinkConfig;
 
@@ -351,11 +480,47 @@ pub struct NetworkConfig {
     pub host: String,
     pub port: u16,
     pub format: OutputFormat,
-    #[serde(default = "default_file_buffer_size")]
+    #[serde(default = "default_network_buffer_size")]
     pub buffer_size: usize,
-    pub timeout_ms: Option<u64>,
+    #[serde(default = "default_network_timeout_ms")]
+    pub timeout_ms: u64,
+    #[serde(default = "default_max_reconnect_attempts")]
+    pub max_reconnect_attempts: usize,
+    #[serde(default = "default_reconnect_delay_ms")]
+    pub reconnect_delay_ms: u64,
+    
+    // 安全策略配置
+    #[serde(default = "default_security_policy")]
+    pub security_policy: SecurityPolicy,
+    #[serde(default = "default_connection_rate_limit")]
+    pub connection_rate_limit: u32,
+    #[serde(default = "default_enable_security_audit")]
+    pub enable_security_audit: bool,
+    
+    // TLS 配置
     #[cfg(feature = "tls")]
     pub use_tls: Option<bool>,
+    #[cfg(feature = "tls")]
+    #[serde(default = "default_tls_verify_certificates")]
+    pub tls_verify_certificates: bool,
+    #[cfg(feature = "tls")]
+    #[serde(default = "default_tls_verify_hostname")]
+    pub tls_verify_hostname: bool,
+    #[cfg(feature = "tls")]
+    #[serde(default = "default_tls_min_version")]
+    pub tls_min_version: TlsVersion,
+    #[cfg(feature = "tls")]
+    #[serde(default = "default_tls_cipher_suite")]
+    pub tls_cipher_suite: TlsCipherSuite,
+    #[cfg(feature = "tls")]
+    #[serde(default = "default_tls_require_sni")]
+    pub tls_require_sni: bool,
+    #[cfg(feature = "tls")]
+    pub tls_ca_file: Option<String>,
+    #[cfg(feature = "tls")]
+    pub tls_cert_file: Option<String>,
+    #[cfg(feature = "tls")]
+    pub tls_key_file: Option<String>,
 }
 
 /// 级别文件配置
@@ -649,6 +814,104 @@ pub fn validate_config(config: &QuantumLoggerConfig) -> crate::error::Result<()>
     }
 
     Ok(())
+}
+
+/// 验证网络安全配置
+pub fn validate_network_security(config: &NetworkConfig) -> crate::error::Result<()> {
+    // 严格安全策略下的验证
+    if config.security_policy == SecurityPolicy::Strict {
+        #[cfg(feature = "tls")]
+        {
+            if config.use_tls != Some(true) {
+                return Err(crate::error::QuantumLogError::ConfigError(
+                    "Strict security policy requires TLS to be enabled".to_string(),
+                ));
+            }
+            
+            if !config.tls_verify_certificates {
+                return Err(crate::error::QuantumLogError::ConfigError(
+                    "Strict security policy requires certificate verification".to_string(),
+                ));
+            }
+            
+            if !config.tls_verify_hostname {
+                return Err(crate::error::QuantumLogError::ConfigError(
+                    "Strict security policy requires hostname verification".to_string(),
+                ));
+            }
+            
+            if config.tls_min_version != TlsVersion::Tls13 {
+                return Err(crate::error::QuantumLogError::ConfigError(
+                    "Strict security policy requires TLS 1.3 minimum".to_string(),
+                ));
+            }
+            
+            if config.tls_cipher_suite != TlsCipherSuite::High {
+                return Err(crate::error::QuantumLogError::ConfigError(
+                    "Strict security policy requires high-security cipher suites".to_string(),
+                ));
+            }
+        }
+        
+        #[cfg(not(feature = "tls"))]
+        {
+            return Err(crate::error::QuantumLogError::ConfigError(
+                "Strict security policy requires TLS feature to be enabled".to_string(),
+            ));
+        }
+    }
+    
+    // 验证连接速率限制
+    if config.connection_rate_limit == 0 {
+        return Err(crate::error::QuantumLogError::ConfigError(
+            "Connection rate limit must be greater than 0".to_string(),
+        ));
+    }
+    
+    if config.connection_rate_limit > 10000 {
+        return Err(crate::error::QuantumLogError::ConfigError(
+            "Connection rate limit too high (max: 10000)".to_string(),
+        ));
+    }
+    
+    Ok(())
+}
+
+/// 获取安全的默认网络配置
+pub fn get_secure_network_config() -> NetworkConfig {
+    NetworkConfig {
+        enabled: false,
+        level: None,
+        protocol: NetworkProtocol::Tcp,
+        host: "localhost".to_string(),
+        port: 8443,
+        format: OutputFormat::Json,
+        buffer_size: default_network_buffer_size(),
+        timeout_ms: default_network_timeout_ms(),
+        max_reconnect_attempts: default_max_reconnect_attempts(),
+        reconnect_delay_ms: default_reconnect_delay_ms(),
+        security_policy: SecurityPolicy::Strict,
+        connection_rate_limit: default_connection_rate_limit(),
+        enable_security_audit: true,
+        #[cfg(feature = "tls")]
+        use_tls: Some(true),
+        #[cfg(feature = "tls")]
+        tls_verify_certificates: true,
+        #[cfg(feature = "tls")]
+        tls_verify_hostname: true,
+        #[cfg(feature = "tls")]
+        tls_min_version: TlsVersion::Tls13,
+        #[cfg(feature = "tls")]
+        tls_cipher_suite: TlsCipherSuite::High,
+        #[cfg(feature = "tls")]
+        tls_require_sni: true,
+        #[cfg(feature = "tls")]
+        tls_ca_file: None,
+        #[cfg(feature = "tls")]
+        tls_cert_file: None,
+        #[cfg(feature = "tls")]
+        tls_key_file: None,
+    }
 }
 
 #[cfg(test)]

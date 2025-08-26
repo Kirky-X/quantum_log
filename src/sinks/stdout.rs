@@ -76,6 +76,8 @@ impl StdoutSink {
             }
         }
 
+        // Add newline to ensure each log entry is on its own line
+        output.push('\n');
         output
     }
 

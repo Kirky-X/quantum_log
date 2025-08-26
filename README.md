@@ -33,7 +33,7 @@ tracing = "0.1"
 # 可选特性（示例）
 [dependencies.quantum_log]
 version = "0.3.1"
-features = ["database", "mpi_support"]  # 启用数据库与 MPI 支持
+features = ["database", "mpi_support", "tls"]  # 启用数据库、MPI 和 TLS 支持
 ```
 
 ## 🎯 快速开始
@@ -60,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### 使用设计文档推荐的主 API
+### 使用带关闭句柄的初始化 API
 
 ```rust
 use quantum_log::init_quantum_logger;
@@ -68,7 +68,7 @@ use tracing::{info, warn, error};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 使用设计文档推荐的主 API
+    // 使用带关闭句柄的初始化 API，适用于需要精确控制关闭时机的场景
     let shutdown_handle = init_quantum_logger().await?;
 
     info!("正在使用 QuantumLog 记录日志");
@@ -81,6 +81,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+### API 选择指南
+
+- **`init()`**: 简单初始化，适用于大多数应用场景，使用全局 `shutdown()` 函数关闭
+- **`init_quantum_logger()`**: 返回关闭句柄，适用于需要精确控制关闭时机的场景
+- **`init_with_config()`**: 使用自定义配置初始化，适用于需要特定配置的场景
+
 ## 🆕 0.3.1 变更日志
 
 QuantumLog 0.3.1 带来更强大的功能与更好的稳定性，主要变更：
@@ -89,7 +95,11 @@ QuantumLog 0.3.1 带来更强大的功能与更好的稳定性，主要变更：
 - 数据库连接字符串脱敏：防止敏感信息泄露
 - 文件权限安全检查：确保日志文件访问权限正确
 - 缓冲区溢出保护：增强内存安全性
-- 网络传输加密支持：提升数据传输安全性
+- **TLS网络传输加密**：全面支持TLS/SSL加密传输
+  - 支持TLS证书验证（服务器证书和主机名验证）
+  - 支持自定义CA证书文件和客户端证书认证
+  - 可配置的TLS验证策略，提升网络传输安全性
+- 网络连接重连机制优化：支持可配置的重连次数和延迟
 
 **⚡ 性能优化**
 - 减少字符串分配和克隆操作
@@ -98,6 +108,10 @@ QuantumLog 0.3.1 带来更强大的功能与更好的稳定性，主要变更：
 - 优化文件路径处理
 
 **🛠️ 代码质量改进**
+- **网络模块TLS安全增强**：完整实现TLS加密传输功能
+  - 新增TLS配置字段：`tls_verify_certificates`、`tls_verify_hostname`、`tls_ca_file`、`tls_cert_file`、`tls_key_file`
+  - 实现自定义TLS验证器，支持灵活的证书验证策略
+  - 优化网络重连机制：`max_reconnect_attempts`、`reconnect_delay_ms`
 - 修复QuantumLoggerConfig字段缺失问题
 - 修复PipelineBuilder导入问题
 - 移除未使用的导入和变量
@@ -180,12 +194,66 @@ cargo test
 # 按特性运行测试
 cargo test --features database
 cargo test --features mpi_support
+cargo test --features tls
 
 # 运行示例
 cargo run --example basic_usage
 cargo run --example complete_examples
 cargo run --example config_file_example
+cargo run --example influxdb_example
 ```
+
+## 📊 InfluxDB 支持
+
+QuantumLog 支持将日志写入 InfluxDB，适用于需要时序数据分析的场景。
+
+### 配置示例
+
+```toml
+# InfluxDB 配置
+[influxdb]
+enabled = true
+level = "INFO"
+url = "http://localhost:8086"
+database = "quantum_logs"
+# 对于 InfluxDB 2.x，使用 token 认证
+# token = "your-influxdb-token"
+# 对于 InfluxDB 1.x，使用用户名/密码认证
+username = "quantum_user"
+password = "quantum_password"
+batch_size = 100
+flush_interval_seconds = 5
+use_https = false
+verify_ssl = true
+```
+
+### 特性
+
+- **批量写入**：通过批量处理提高写入性能
+- **双版本支持**：兼容 InfluxDB 1.x 和 2.x
+- **认证支持**：支持 Token 和基本认证
+- **异步处理**：基于 Tokio 的异步架构
+- **自动刷新**：定时刷新机制确保数据及时写入
+
+### 数据模型
+
+日志数据在 InfluxDB 中的存储结构：
+
+- **Measurement**: 日志目标模块名
+- **Tags**: 
+  - `level`: 日志级别
+  - `hostname`: 主机名
+  - `thread`: 线程名
+  - `mpi_rank`: MPI 排名（如果启用）
+- **Fields**:
+  - `message`: 日志消息
+  - `file`: 文件路径
+  - `line`: 行号
+  - `module`: 模块路径
+  - `username`: 用户名
+  - 自定义字段
+
+## 📝 许可证
 
 ## 📝 许可证
 

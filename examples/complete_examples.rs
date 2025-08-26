@@ -3,6 +3,7 @@
 
 use quantum_log::config::*;
 use quantum_log::{get_buffer_stats, get_diagnostics, QuantumLogConfig};
+use quantum_log::config::{DatabaseSinkConfig, FileSinkConfig, NetworkConfig, NetworkProtocol, OutputFormat};
 use serde_json::json;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
@@ -231,11 +232,42 @@ async fn example_advanced_config() -> Result<(), Box<dyn std::error::Error>> {
         #[cfg(not(feature = "database"))]
         database: None,
         
-        // 网络配置
+        // 网络配置（启用TLS加密传输）
+        #[cfg(feature = "tls")]
+        network: Some(NetworkConfig {
+            enabled: true,
+            level: None,
+            protocol: NetworkProtocol::Tcp,
+            host: "secure-log-server.example.com".to_string(),
+            port: 8443,
+            format: OutputFormat::Json,
+            buffer_size: 8192,
+            timeout_ms: 5000,
+            max_reconnect_attempts: 3,
+            reconnect_delay_ms: 1000,
+            security_policy: SecurityPolicy::Strict,
+            connection_rate_limit: 50,
+            enable_security_audit: true,
+            // TLS安全配置
+            use_tls: Some(true),
+            tls_verify_certificates: true,
+            tls_verify_hostname: true,
+            tls_ca_file: Some("/path/to/ca-cert.pem".to_string()),
+            tls_cert_file: Some("/path/to/client-cert.pem".to_string()),
+            tls_key_file: Some("/path/to/client-key.pem".to_string()),
+            tls_min_version: TlsVersion::Tls12,
+            tls_cipher_suite: TlsCipherSuite::High,
+            tls_require_sni: true,
+        }),
+        
+        #[cfg(not(feature = "tls"))]
         network: None,
         
         // 级别文件配置
         level_file: None,
+        
+        // InfluxDB配置
+        influxdb: None,
     };
 
     info!("高级配置已初始化");
@@ -339,8 +371,9 @@ async fn example_mpi_usage() -> Result<(), Box<dyn std::error::Error>> {
             ..Default::default()
         };
 
-        // 使用配置初始化日志系统
-        quantum_log::init_with_config(config).await?;
+        // 注意：在示例集合中，日志系统已经在main函数中初始化
+        // 这里我们只是演示MPI配置，不重复初始化
+        println!("MPI配置: rank={}, 日志目录: ./logs/rank_{}", rank, rank);
 
         info!(rank = rank, "MPI 进程启动");
 
@@ -472,38 +505,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 mod tests {
     use super::*;
 
+    /// 通用测试辅助函数，减少重复代码
+    async fn test_example_function<F, Fut>(example_fn: F, test_name: &str)
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<(), Box<dyn std::error::Error>>>,
+    {
+        match example_fn().await {
+            Ok(_) => println!("✅ {} 测试通过", test_name),
+            Err(e) => panic!("❌ {} 测试失败: {}", test_name, e),
+        }
+    }
+
     #[tokio::test]
     async fn test_basic_usage() {
-        assert!(example_basic_usage().await.is_ok());
+        test_example_function(example_basic_usage, "基本使用").await;
     }
 
     #[tokio::test]
     async fn test_design_document_api() {
-        assert!(example_design_document_api().await.is_ok());
+        test_example_function(example_design_document_api, "设计文档 API").await;
     }
 
     #[tokio::test]
     async fn test_custom_config() {
-        assert!(example_custom_config().await.is_ok());
+        test_example_function(example_custom_config, "自定义配置").await;
     }
 
     #[tokio::test]
     async fn test_structured_logging() {
-        assert!(example_structured_logging().await.is_ok());
+        test_example_function(example_structured_logging, "结构化日志记录").await;
     }
 
     #[tokio::test]
     async fn test_error_handling_diagnostics() {
-        assert!(example_error_handling_diagnostics().await.is_ok());
+        test_example_function(example_error_handling_diagnostics, "错误处理和诊断").await;
     }
 
     #[tokio::test]
     async fn test_performance_test() {
-        assert!(example_performance_test().await.is_ok());
+        test_example_function(example_performance_test, "性能测试").await;
     }
 
     #[tokio::test]
     async fn test_detailed_error_handling() {
-        assert!(example_detailed_error_handling().await.is_ok());
+        test_example_function(example_detailed_error_handling, "详细错误处理").await;
     }
 }

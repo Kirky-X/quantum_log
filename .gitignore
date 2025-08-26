@@ -5,6 +5,11 @@ logs/
 .trae/
 .vscode/
 .idea/
+
+# Environment variables (contains sensitive data)
+.env
+.env.local
+.env.*.local
 # Ignore test binaries and backup files
 /test/*.exe
 /test/*.pdb

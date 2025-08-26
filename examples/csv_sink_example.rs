@@ -301,6 +301,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         file: None,
         database: None,
         network: None,
+        influxdb: None,
         level_file: None,
         context_fields: ContextFieldsConfig {
             timestamp: true,
