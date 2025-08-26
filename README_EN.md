@@ -138,7 +138,7 @@ QuantumLog supports loading MPI libraries at runtime without linking them at com
 
 ```toml
 [dependencies.quantum_log]
-version = "0.3.0"
+version = "0.3.2"
 features = ["mpi_support", "dynamic_mpi"]
 ```
 
