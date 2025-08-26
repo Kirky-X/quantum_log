@@ -91,6 +91,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 QuantumLog 0.3.2 带来更强大的功能与更好的稳定性，主要变更：
 
+**📊 InfluxDB 时序数据库支持**
+- **新增 InfluxDB Sink**：完整支持将日志写入 InfluxDB 时序数据库
+  - 兼容 InfluxDB 1.x 和 2.x 版本
+  - 支持 Token 认证和基本用户名/密码认证
+  - 批量写入机制提高性能（可配置批次大小和刷新间隔）
+  - 异步处理架构，支持自动重连和错误恢复
+  - 结构化数据模型：measurement、tags、fields 完整映射
+- **时序数据分析优化**：为 HPC 和监控场景提供专业的时序日志存储
+
+**🏗️ 项目架构重构**
+- **独立 Examples Crate**：将测试和示例代码重构为独立的 `examples` crate
+  - 每个子目录专门负责单个 sink 的测试样例
+  - 提供完整的编译和运行环境
+  - 包含 console、file、database、influxdb、network 等完整示例
+- **项目结构优化**：合并 `test/` 和 `examples/` 目录，提升代码组织性
+- **文档系统完善**：更新 `.gitignore`，排除构建产物和设计文档
+
+**🧪 测试框架改进**
+- **完整测试覆盖**：所有 sink 类型的独立测试样例
+- **集成测试增强**：InfluxDB、数据库、网络等模块的完整集成测试
+- **示例代码验证**：确保所有示例代码可编译和运行
+- **回归测试完善**：覆盖所有功能模块的回归测试套件
+
 **🔒 安全加固**
 - 数据库连接字符串脱敏：防止敏感信息泄露
 - 文件权限安全检查：确保日志文件访问权限正确
@@ -106,12 +129,14 @@ QuantumLog 0.3.2 带来更强大的功能与更好的稳定性，主要变更：
 - 优化HashMap转换性能
 - 改进数据库操作效率
 - 优化文件路径处理
+- InfluxDB 批量写入性能优化
 
 **🛠️ 代码质量改进**
 - **网络模块TLS安全增强**：完整实现TLS加密传输功能
   - 新增TLS配置字段：`tls_verify_certificates`、`tls_verify_hostname`、`tls_ca_file`、`tls_cert_file`、`tls_key_file`
   - 实现自定义TLS验证器，支持灵活的证书验证策略
   - 优化网络重连机制：`max_reconnect_attempts`、`reconnect_delay_ms`
+- **InfluxDB 模块实现**：完整的 InfluxDB sink 实现，支持企业级时序数据存储
 - 修复QuantumLoggerConfig字段缺失问题
 - 修复PipelineBuilder导入问题
 - 移除未使用的导入和变量
@@ -252,8 +277,6 @@ verify_ssl = true
   - `module`: 模块路径
   - `username`: 用户名
   - 自定义字段
-
-## 📝 许可证
 
 ## 📝 许可证
 

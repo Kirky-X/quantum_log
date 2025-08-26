@@ -84,6 +84,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## 🆕 0.3.2 Change Log
 
 QuantumLog 0.3.2 brings stronger features and better stability. Key changes:
+**📊 InfluxDB Time-Series Database Support**\
+- **New InfluxDB Sink**: Complete support for writing logs to InfluxDB time-series database\
+  - Compatible with InfluxDB 1.x and 2.x versions\
+  - Support for Token authentication and basic username/password authentication\
+  - Batch writing mechanism for improved performance (configurable batch size and flush interval)\
+  - Asynchronous processing architecture with auto-reconnection and error recovery\
+  - Structured data model: complete mapping of measurements, tags, and fields\
+- **Time-Series Data Analysis Optimization**: Professional time-series log storage for HPC and monitoring scenarios\
+\
+**🏗️ Project Architecture Refactoring**\
+- **Independent Examples Crate**: Refactored test and example code into an independent `examples` crate\
+  - Each subdirectory is dedicated to testing examples for a single sink\
+  - Provides complete compilation and runtime environment\
+  - Includes complete examples for console, file, database, influxdb, network, etc.\
+- **Project Structure Optimization**: Merged `test/` and `examples/` directories for improved code organization\
+- **Documentation System Enhancement**: Updated `.gitignore` to exclude build artifacts and design documents\
+\
+**🧪 Testing Framework Improvements**\
+- **Complete Test Coverage**: Independent test examples for all sink types\
+- **Enhanced Integration Testing**: Complete integration tests for InfluxDB, database, network, and other modules\
+- **Example Code Verification**: Ensures all example code can be compiled and run\
+- **Comprehensive Regression Testing**: Regression test suite covering all functional modules
 
 **🔒 Security Hardening**
 - Database connection string sanitization: prevent sensitive information leakage
