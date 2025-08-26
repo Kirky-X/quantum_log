@@ -246,7 +246,29 @@ struct InfluxDBProcessor {
 
 impl InfluxDBProcessor {
     /// 创建新的处理器
-    async fn new(config: InfluxDBConfig) -> Result<Self> {
+    async fn new(mut config: InfluxDBConfig) -> Result<Self> {
+        // 从环境变量安全地获取凭证信息
+        let (env_token, env_username, env_password) = crate::env_config::get_secure_influxdb_config()?;
+        
+        // 优先使用环境变量中的凭证
+        if let Some(token) = env_token {
+            config.token = Some(token);
+        }
+        if let Some(username) = env_username {
+            config.username = Some(username);
+        }
+        if let Some(password) = env_password {
+            config.password = Some(password);
+        }
+        
+        // 从环境变量获取其他配置（如果存在）
+        if let Some(url) = crate::env_config::EnvConfig::get_influxdb_url() {
+            config.url = url;
+        }
+        if let Some(database) = crate::env_config::EnvConfig::get_influxdb_database() {
+            config.database = database;
+        }
+        
         // 创建 HTTP 客户端
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
@@ -271,7 +293,9 @@ impl InfluxDBProcessor {
         // 构建写入路径
         let write_path = if config.token.is_some() {
             // InfluxDB 2.x
-            format!("/api/v2/write?bucket={}&org=default", config.database)
+            let org = crate::env_config::EnvConfig::get_influxdb_org().unwrap_or_else(|| "default".to_string());
+            let bucket = crate::env_config::EnvConfig::get_influxdb_bucket().unwrap_or_else(|| config.database.clone());
+            format!("/api/v2/write?bucket={}&org={}", bucket, org)
         } else {
             // InfluxDB 1.x
             format!("/write?db={}", config.database)
@@ -670,5 +694,63 @@ mod tests {
 
         let sink = InfluxDBSink::new(config);
         assert!(!futures::executor::block_on(sink.is_running()));
+    }
+
+    #[tokio::test]
+    async fn test_influxdb_integration() {
+        use crate::env_config::EnvConfig;
+        
+        // 只有在设置了环境变量时才运行集成测试
+        if EnvConfig::get_influxdb_token().unwrap_or(None).is_none() {
+            println!("Skipping InfluxDB integration test - no token configured");
+            return;
+        }
+        
+        let url = EnvConfig::get_influxdb_url()
+            .unwrap_or_else(|| "http://localhost:8086".to_string());
+        let bucket = EnvConfig::get_influxdb_bucket()
+            .unwrap_or_else(|| "test".to_string());
+        let token = EnvConfig::get_influxdb_token().unwrap_or(None);
+        
+        let config = InfluxDBConfig {
+            enabled: true,
+            level: Some("INFO".to_string()),
+            url,
+            database: bucket,
+            token,
+            username: None,
+            password: None,
+            batch_size: 1,
+            flush_interval_seconds: 1,
+            use_https: false,
+            verify_ssl: true,
+        };
+
+        let mut sink = InfluxDBSink::new(config);
+        
+        // 启动sink
+        if let Err(e) = sink.start().await {
+            println!("Failed to start InfluxDB sink: {}", e);
+            return;
+        }
+        
+        // 等待一下确保sink启动
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        
+        // 创建测试事件
+        let test_event = create_test_event(Level::INFO, "InfluxDB integration test message");
+        
+        // 发送事件
+        if let Err(e) = sink.send_event(test_event).await {
+            println!("Failed to send event to InfluxDB: {}", e);
+        } else {
+            println!("Successfully sent test event to InfluxDB");
+        }
+        
+        // 等待数据刷新
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        
+        // 关闭sink
+        let _ = sink.shutdown().await;
     }
 }

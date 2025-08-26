@@ -25,10 +25,10 @@ level = "INFO"
 url = "http://localhost:8086"
 database = "quantum_logs"
 # 对于 InfluxDB 2.x，使用 token 认证
-# token = "your-influxdb-token"
+# token = "your-influxdb-token"  # 请使用环境变量 INFLUXDB_TOKEN
 # 对于 InfluxDB 1.x，使用用户名/密码认证
-username = "quantum_user"
-password = "quantum_password"
+# username = "your-username"  # 请使用环境变量 INFLUXDB_USERNAME
+# password = "your-password"  # 请使用环境变量 INFLUXDB_PASSWORD
 batch_size = 100
 flush_interval_seconds = 5
 use_https = false
