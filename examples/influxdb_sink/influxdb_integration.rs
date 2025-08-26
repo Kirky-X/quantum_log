@@ -23,7 +23,7 @@ async fn test_influxdb_integration() {
         .expect("INFLUXDB_TOKEN environment variable is required");
     
     let org = EnvConfig::get_influxdb_org()
-        .unwrap_or_else(|| "kirky".to_string());
+        .unwrap_or_else(|| "test".to_string());
     
     let bucket = EnvConfig::get_influxdb_bucket()
         .unwrap_or_else(|| "test".to_string());

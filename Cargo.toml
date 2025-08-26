@@ -1,6 +1,6 @@
 [package]
 name = "quantum_log"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 authors = ["Kirky.X"]
 description = "High-performance asynchronous logging framework based on tracing ecosystem"
@@ -126,6 +126,4 @@ sqlite = ["db", "diesel/sqlite", "libsqlite3-sys/bundled"]
 postgres = ["db", "diesel/postgres", "pq-sys/bundled", "openssl-sys/vendored"]
 mysql = ["db", "diesel/mysql", "mysqlclient-sys/bundled", "openssl-sys/vendored"]
 influxdb = []
-[[bin]]
-name = "test_examples"
-path = "test/test_examples.rs"
+# test_examples binary moved to examples crate

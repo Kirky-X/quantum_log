@@ -14,5 +14,6 @@ logs/
 /test/*.exe
 /test/*.pdb
 Cargo.toml.orig
-# Docs: ignore local design document at repo root
+# Docs: ignore local design document and docs directory at repo root
 /设计文档.md
+/docs/

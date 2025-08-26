@@ -26,13 +26,13 @@
 
 ```toml
 [dependencies]
-quantum_log = "0.3.1"
+quantum_log = "0.3.2"
 tokio = { version = "1.0", features = ["full"] }
 tracing = "0.1"
 
 # 可选特性（示例）
 [dependencies.quantum_log]
-version = "0.3.1"
+version = "0.3.2"
 features = ["database", "mpi_support", "tls"]  # 启用数据库、MPI 和 TLS 支持
 ```
 
@@ -87,9 +87,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **`init_quantum_logger()`**: 返回关闭句柄，适用于需要精确控制关闭时机的场景
 - **`init_with_config()`**: 使用自定义配置初始化，适用于需要特定配置的场景
 
-## 🆕 0.3.1 变更日志
+## 🆕 0.3.2 变更日志
 
-QuantumLog 0.3.1 带来更强大的功能与更好的稳定性，主要变更：
+QuantumLog 0.3.2 带来更强大的功能与更好的稳定性，主要变更：
 
 **🔒 安全加固**
 - 数据库连接字符串脱敏：防止敏感信息泄露
@@ -117,7 +117,7 @@ QuantumLog 0.3.1 带来更强大的功能与更好的稳定性，主要变更：
 - 移除未使用的导入和变量
 - 所有测试用例通过验证
 
-> 迁移提示（MPI 动态加载）：自 0.3.1 起，运行时代码不再读取自定义 `MPI_LIB_PATH`。请使用平台标准环境变量（`LD_LIBRARY_PATH`/`PATH`/`DYLD_LIBRARY_PATH`）覆盖或指定库路径。`MPI_LIB_PATH` 仅在构建阶段作为信息展示，运行时不依赖该变量。
+> 迁移提示（MPI 动态加载）：自 0.3.2 起，运行时代码不再读取自定义 `MPI_LIB_PATH`。请使用平台标准环境变量（`LD_LIBRARY_PATH`/`PATH`/`DYLD_LIBRARY_PATH`）覆盖或指定库路径。`MPI_LIB_PATH` 仅在构建阶段作为信息展示，运行时不依赖该变量。
 
 ### 🔧 启用 MPI 动态加载
 

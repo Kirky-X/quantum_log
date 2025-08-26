@@ -59,11 +59,11 @@ fn run_example(example: &ExampleInfo) -> TestResult {
     // 特殊处理：sink_trait_usage 我们运行其示例内的单元测试，以执行对独占型 sink/构建器 API 的覆盖
     let output = if example.file == "sink_trait_usage" {
         Command::new("cargo")
-            .args(["test", "--example", &example.file])
+            .args(["test", "--bin", &example.file])
             .output()
     } else {
         Command::new("cargo")
-            .args(["run", "--example", &example.file])
+            .args(["run", "--bin", &example.file])
             .output()
     };
 

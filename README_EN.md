@@ -26,13 +26,13 @@ Add the dependency to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-quantum_log = "0.3.1"
+quantum_log = "0.3.2"
 tokio = { version = "1.0", features = ["full"] }
 tracing = "0.1"
 
 # Optional features
 [dependencies.quantum_log]
-version = "0.3.1"
+version = "0.3.2"
 features = ["database", "mpi_support", "tls"]  # Enable database, MPI and TLS support
 ```
 
@@ -81,9 +81,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-## 🆕 0.3.1 Change Log
+## 🆕 0.3.2 Change Log
 
-QuantumLog 0.3.1 brings stronger features and better stability. Key changes:
+QuantumLog 0.3.2 brings stronger features and better stability. Key changes:
 
 **🔒 Security Hardening**
 - Database connection string sanitization: prevent sensitive information leakage
@@ -108,7 +108,7 @@ QuantumLog 0.3.1 brings stronger features and better stability. Key changes:
 - Remove unused imports and variables
 - All test cases pass verification
 
-> Migration Note (MPI dynamic loading): Starting from 0.3.1, the runtime loader does not read a custom `MPI_LIB_PATH`. Use platform-standard environment variables (`LD_LIBRARY_PATH`/`PATH`/`DYLD_LIBRARY_PATH`) to override or specify library paths. `MPI_LIB_PATH` is only surfaced during build for informational purposes and is not used at runtime.
+> Migration Note (MPI dynamic loading): Starting from 0.3.2, the runtime loader does not read a custom `MPI_LIB_PATH`. Use platform-standard environment variables (`LD_LIBRARY_PATH`/`PATH`/`DYLD_LIBRARY_PATH`) to override or specify library paths. `MPI_LIB_PATH` is only surfaced during build for informational purposes and is not used at runtime.
 
 ### 🔧 Enable MPI Dynamic Loading
 
