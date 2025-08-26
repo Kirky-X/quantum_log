@@ -33,7 +33,7 @@ tracing = "0.1"
 # Optional features
 [dependencies.quantum_log]
 version = "0.3.2"
-features = ["database", "mpi_support", "tls"]  # Enable database, MPI and TLS support
+features = ["database", "mpi", "tls"]  # Enable database, MPI and TLS support
 ```
 
 ## 🎯 Quick Start
@@ -139,7 +139,7 @@ QuantumLog supports loading MPI libraries at runtime without linking them at com
 ```toml
 [dependencies.quantum_log]
 version = "0.3.2"
-features = ["mpi_support", "dynamic_mpi"]
+features = ["mpi", "dynamic_mpi"]
 ```
 
 Highlights:

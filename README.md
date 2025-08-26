@@ -151,7 +151,7 @@ QuantumLog 支持在运行时动态加载 MPI 库，无需在编译期进行静�
 ```toml
 [dependencies.quantum_log]
 version = "0.3.2"
-features = ["mpi_support", "dynamic_mpi"]
+features = ["mpi", "dynamic_mpi"]
 ```
 
 亮点：
