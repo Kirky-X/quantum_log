@@ -17,23 +17,23 @@ use crate::sinks::traits::{ExclusiveSink, QuantumSink, SinkError, SinkMetadata, 
 
 type Result<T> = std::result::Result<T, QuantumLogError>;
 
-#[cfg(feature = "database")]
+#[cfg(feature = "db")]
 use diesel::prelude::*;
-#[cfg(feature = "database")]
+#[cfg(feature = "db")]
 use diesel::r2d2::{ConnectionManager, Pool};
 
 /// 数据库连接池类型别名
-#[cfg(all(feature = "database", feature = "sqlite"))]
+#[cfg(all(feature = "db", feature = "sqlite"))]
 type SqlitePool = Pool<ConnectionManager<diesel::sqlite::SqliteConnection>>;
 
-#[cfg(all(feature = "database", feature = "mysql"))]
+#[cfg(all(feature = "db", feature = "mysql"))]
 type MysqlPool = Pool<ConnectionManager<diesel::mysql::MysqlConnection>>;
 
-#[cfg(all(feature = "database", feature = "postgres"))]
+#[cfg(all(feature = "db", feature = "postgres"))]
 type PostgresPool = Pool<ConnectionManager<diesel::pg::PgConnection>>;
 
 /// 数据库连接池枚举
-#[cfg(feature = "database")]
+#[cfg(feature = "db")]
 #[derive(Clone)]
 pub enum DatabasePool {
     #[cfg(feature = "sqlite")]
@@ -50,7 +50,7 @@ pub enum DatabasePool {
 #[derive(Clone)]
 pub struct DatabaseSink {
     /// 数据库连接池
-    #[cfg(feature = "database")]
+    #[cfg(feature = "db")]
     pool: DatabasePool,
     /// 配置信息
     config: DatabaseSinkConfig,
@@ -76,7 +76,7 @@ impl DatabaseSink {
     ///
     /// # 返回
     /// 返回配置好的 DatabaseSink 实例或错误
-    #[cfg(feature = "database")]
+    #[cfg(feature = "db")]
     pub async fn new(config: DatabaseSinkConfig) -> Result<Self> {
         let pool = Self::create_connection_pool(&config).await?;
 
@@ -101,7 +101,7 @@ impl DatabaseSink {
     }
 
     /// 创建数据库连接池
-    #[cfg(feature = "database")]
+    #[cfg(feature = "db")]
     async fn create_connection_pool(config: &DatabaseSinkConfig) -> Result<DatabasePool> {
         use diesel::r2d2::Pool;
 
@@ -165,7 +165,7 @@ impl DatabaseSink {
     }
 
     /// 发送事件到数据库
-    #[cfg(feature = "database")]
+    #[cfg(feature = "db")]
     pub async fn send_event(
         &self,
         event: QuantumLogEvent,
@@ -184,7 +184,7 @@ impl DatabaseSink {
     }
 
     /// 关闭数据库 Sink
-    #[cfg(feature = "database")]
+    #[cfg(feature = "db")]
     pub async fn shutdown(self) -> Result<()> {
         // 数据库 Sink 使用 spawn_task 模式，关闭由任务内部处理
         // 这里只需要返回成功即可
@@ -192,7 +192,7 @@ impl DatabaseSink {
     }
 
     /// 创建表（如果不存在）
-    #[cfg(feature = "database")]
+    #[cfg(feature = "db")]
     async fn create_table_if_not_exists(&self) -> Result<()> {
         use crate::sinks::database::schema::create_table_sql;
 
@@ -268,7 +268,7 @@ impl DatabaseSink {
     ///
     /// # 返回
     /// 返回任务句柄
-    #[cfg(feature = "database")]
+    #[cfg(feature = "db")]
     pub fn spawn_task(
         self,
         mut receiver: mpsc::Receiver<QuantumLogEvent>,
@@ -343,7 +343,7 @@ impl DatabaseSink {
     }
 
     /// 将 QuantumLogEvent 转换为 NewQuantumLogEntry
-    #[cfg(feature = "database")]
+    #[cfg(feature = "db")]
     async fn convert_event_to_entry(&self, event: &QuantumLogEvent) -> Result<NewQuantumLogEntry> {
         // 优化字符串处理，减少不必要的克隆
         let hostname = event.context.hostname.as_deref().unwrap_or("");
@@ -395,7 +395,7 @@ impl DatabaseSink {
     }
 
     /// 刷新批次到数据库
-    #[cfg(feature = "database")]
+    #[cfg(feature = "db")]
     async fn flush_batch(&self, batch: &mut LogBatch) -> Result<()> {
         if batch.is_empty() {
             return Ok(());
@@ -433,7 +433,7 @@ impl DatabaseSink {
     }
 
     /// 在阻塞线程中执行批量插入（带重试机制）
-    #[cfg(feature = "database")]
+    #[cfg(feature = "db")]
     fn insert_batch_blocking(pool: DatabasePool, entries: Vec<NewQuantumLogEntry>) -> Result<()> {
         use crate::sinks::database::schema::quantum_logs;
         use std::thread;
@@ -511,7 +511,7 @@ impl DatabaseSink {
     }
 
     /// 测试数据库连接（带重试机制）
-    #[cfg(feature = "database")]
+    #[cfg(feature = "db")]
     pub async fn test_connection(&self) -> Result<()> {
         let pool = self.pool.clone();
 
@@ -523,7 +523,7 @@ impl DatabaseSink {
     }
 
     /// 在阻塞线程中测试数据库连接（带重试机制）
-    #[cfg(feature = "database")]
+    #[cfg(feature = "db")]
     fn test_connection_blocking(pool: &DatabasePool) -> Result<()> {
         use std::thread;
         use std::time::Duration as StdDuration;
@@ -597,7 +597,7 @@ impl DatabaseSink {
     }
 
     /// 启动健康检查任务
-    #[cfg(feature = "database")]
+    #[cfg(feature = "db")]
     pub fn spawn_health_check_task(
         &self,
         mut shutdown_signal: tokio::sync::broadcast::Receiver<()>,
@@ -687,7 +687,7 @@ impl QuantumSink for DatabaseSink {
         // 创建单个条目的向量
         let entries = vec![entry];
 
-        #[cfg(feature = "database")]
+        #[cfg(feature = "db")]
         {
             let pool = self.pool.clone();
             let result =
@@ -700,7 +700,7 @@ impl QuantumSink for DatabaseSink {
                 Err(e) => Err(SinkError::Generic(format!("数据库任务执行失败: {}", e))),
             }
         }
-        #[cfg(not(feature = "database"))]
+        #[cfg(not(feature = "db"))]
         {
             Err(SinkError::Generic("数据库功能未启用".to_string()))
         }
@@ -709,7 +709,7 @@ impl QuantumSink for DatabaseSink {
     async fn shutdown(&self) -> std::result::Result<(), Self::Error> {
         debug!("DatabaseSink 正在关闭");
         
-        #[cfg(feature = "database")]
+        #[cfg(feature = "db")]
         {
             // 显式关闭连接池中的所有连接
             match &self.pool {
@@ -780,11 +780,11 @@ impl QuantumSink for DatabaseSink {
     }
 
     async fn is_healthy(&self) -> bool {
-        #[cfg(feature = "database")]
+        #[cfg(feature = "db")]
         {
             self.test_connection().await.is_ok()
         }
-        #[cfg(not(feature = "database"))]
+        #[cfg(not(feature = "db"))]
         {
             false
         }
@@ -826,10 +826,10 @@ impl QuantumSink for DatabaseSink {
 impl ExclusiveSink for DatabaseSink {}
 
 /// 为没有启用数据库特性的情况提供占位实现
-#[cfg(not(feature = "database"))]
+#[cfg(not(feature = "db"))]
 impl DatabaseSink {
     pub async fn new(_config: DatabaseSinkConfig) -> Result<Self> {
-        Err(QuantumLogError::FeatureNotEnabled("database".to_string()))
+        Err(QuantumLogError::FeatureNotEnabled("db".to_string()))
     }
 
     pub fn spawn_task(
@@ -837,15 +837,15 @@ impl DatabaseSink {
         _receiver: mpsc::Receiver<QuantumLogEvent>,
         _shutdown_signal: tokio::sync::broadcast::Receiver<()>,
     ) -> tokio::task::JoinHandle<Result<()>> {
-        tokio::spawn(async { Err(QuantumLogError::FeatureNotEnabled("database".to_string())) })
+        tokio::spawn(async { Err(QuantumLogError::FeatureNotEnabled("db".to_string())) })
     }
 
     pub async fn test_connection(&self) -> Result<()> {
-        Err(QuantumLogError::FeatureNotEnabled("database".to_string()))
+        Err(QuantumLogError::FeatureNotEnabled("db".to_string()))
     }
 }
 
-#[cfg(all(test, feature = "database"))]
+#[cfg(all(test, feature = "db"))]
 mod tests {
     use super::*;
     use crate::config::DatabaseType;

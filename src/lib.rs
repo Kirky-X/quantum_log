@@ -56,7 +56,7 @@ pub mod shutdown;
 pub mod sinks;
 pub mod utils;
 
-#[cfg(feature = "database")]
+#[cfg(feature = "db")]
 pub mod database {
     pub use crate::sinks::database::*;
 }

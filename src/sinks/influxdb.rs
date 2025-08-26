@@ -282,12 +282,10 @@ impl InfluxDBProcessor {
             } else {
                 config.url.clone()
             }
+        } else if !config.url.starts_with("http://") {
+            format!("http://{}", config.url)
         } else {
-            if !config.url.starts_with("http://") {
-                format!("http://{}", config.url)
-            } else {
-                config.url.clone()
-            }
+            config.url.clone()
         };
 
         // 构建写入路径

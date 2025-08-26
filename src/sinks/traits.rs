@@ -251,7 +251,7 @@ pub enum SinkError {
     Network(String),
 
     /// 数据库错误
-    #[cfg(feature = "database")]
+    #[cfg(feature = "db")]
     #[error("Database error: {0}")]
     Database(String),
 

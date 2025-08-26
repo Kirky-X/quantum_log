@@ -1,7 +1,9 @@
 //! QuantumLog TLS网络传输示例
 //! 演示如何配置和使用TLS加密的网络日志传输
 
-use quantum_log::config::{NetworkConfig, NetworkProtocol, OutputFormat, SecurityPolicy, TlsVersion, TlsCipherSuite};
+use quantum_log::config::{NetworkConfig, NetworkProtocol, OutputFormat, SecurityPolicy};
+#[cfg(feature = "tls")]
+use quantum_log::config::{TlsVersion, TlsCipherSuite};
 // use quantum_log::sinks::NetworkSink; // 注释掉未使用的导入
 use std::time::Duration;
 use tokio::time::sleep;

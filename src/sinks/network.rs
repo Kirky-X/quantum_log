@@ -2,14 +2,14 @@
 //!
 //! 此模块实现通过网络发送日志的 sink，支持 TCP 和 UDP 协议。
 
-use crate::config::{NetworkConfig, NetworkProtocol, SecurityPolicy};
+use crate::config::{NetworkConfig, NetworkProtocol};
 use crate::core::event::QuantumLogEvent;
 use crate::error::{QuantumLogError, Result};
 use crate::sinks::traits::{ExclusiveSink, QuantumSink, SinkError};
 use async_trait::async_trait;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Instant;
+// use std::time::Instant; // 暂时未使用
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::{mpsc, oneshot, Mutex};
@@ -47,7 +47,10 @@ const SHUTDOWN_SIGNAL_FAILED: &str = "Failed to send shutdown signal";
 const SHUTDOWN_SIGNAL_LOST: &str = "Shutdown signal lost";
 const NEWLINE_BYTES: &[u8] = b"\n";
 // const SECURITY_AUDIT_ERROR: &str = "Security audit logging failed"; // 暂时未使用
+// 安全相关常量（预留用于未来功能）
+#[allow(dead_code)]
 const RATE_LIMIT_EXCEEDED: &str = "Connection rate limit exceeded";
+#[allow(dead_code)]
 const INVALID_INPUT_DATA: &str = "Invalid input data detected";
 // const TLS_VERSION_NOT_SUPPORTED: &str = "TLS version not supported"; // 暂时未使用
 // const CIPHER_SUITE_NOT_ALLOWED: &str = "Cipher suite not allowed"; // 暂时未使用
@@ -947,7 +950,7 @@ impl NetworkSinkProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::OutputFormat;
+    use crate::config::{OutputFormat, SecurityPolicy};
     use crate::core::event::ContextInfo;
 
     use tokio::net::{TcpListener, UdpSocket};

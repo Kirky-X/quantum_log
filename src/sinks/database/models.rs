@@ -2,17 +2,17 @@
 //!
 //! 此模块定义了与数据库表对应的 Rust 结构体，用于 Diesel ORM 操作。
 
-#[cfg(feature = "database")]
+#[cfg(feature = "db")]
 use crate::sinks::database::schema::quantum_logs;
-#[cfg(feature = "database")]
+#[cfg(feature = "db")]
 use chrono::{DateTime, NaiveDateTime, Utc};
-#[cfg(feature = "database")]
+#[cfg(feature = "db")]
 use diesel::prelude::*;
-#[cfg(feature = "database")]
+#[cfg(feature = "db")]
 use serde::{Deserialize, Serialize};
 
 /// 用于插入新日志记录的结构体
-#[cfg(feature = "database")]
+#[cfg(feature = "db")]
 #[derive(Debug, Clone, Insertable, Serialize, Deserialize)]
 #[diesel(table_name = quantum_logs)]
 pub struct NewQuantumLogEntry {
@@ -65,7 +65,7 @@ pub struct NewQuantumLogEntry {
 /// 从数据库查询的完整日志条目
 ///
 /// 此结构体包含数据库中的所有字段，包括自动生成的 ID。
-#[cfg(feature = "database")]
+#[cfg(feature = "db")]
 #[derive(Queryable, Selectable, Debug, Clone, Serialize, Deserialize)]
 #[diesel(table_name = quantum_logs)]
 pub struct QuantumLogEntry {
@@ -118,7 +118,7 @@ pub struct QuantumLogEntry {
     pub module_path: Option<String>,
 }
 
-#[cfg(feature = "database")]
+#[cfg(feature = "db")]
 impl NewQuantumLogEntry {
     /// 创建一个新的日志条目
     pub fn new(
@@ -183,7 +183,7 @@ impl NewQuantumLogEntry {
     }
 }
 
-#[cfg(feature = "database")]
+#[cfg(feature = "db")]
 impl QuantumLogEntry {
     /// 获取格式化的时间戳字符串
     pub fn formatted_timestamp(&self, format: &str) -> String {
@@ -221,7 +221,7 @@ impl QuantumLogEntry {
 }
 
 /// 用于批量插入的辅助结构
-#[cfg(feature = "database")]
+#[cfg(feature = "db")]
 #[derive(Debug, Clone)]
 pub struct LogBatch {
     /// 批次中的日志条目
@@ -230,7 +230,7 @@ pub struct LogBatch {
     pub created_at: DateTime<Utc>,
 }
 
-#[cfg(feature = "database")]
+#[cfg(feature = "db")]
 impl LogBatch {
     /// 创建一个新的日志批次
     pub fn new() -> Self {
@@ -273,14 +273,14 @@ impl LogBatch {
     }
 }
 
-#[cfg(feature = "database")]
+#[cfg(feature = "db")]
 impl Default for LogBatch {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(all(test, feature = "database"))]
+#[cfg(all(test, feature = "db"))]
 mod tests {
     use super::*;
     use chrono::Utc;

@@ -425,7 +425,7 @@ pub enum DatabaseType {
 }
 
 /// InfluxDB 配置
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct InfluxDBConfig {
     #[serde(default = "default_false")]
@@ -461,6 +461,25 @@ fn default_influxdb_batch_size() -> usize {
 
 fn default_influxdb_flush_interval() -> u64 {
     5
+}
+
+// 安全的Debug实现，避免泄露敏感的认证信息
+impl std::fmt::Debug for InfluxDBConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InfluxDBConfig")
+            .field("enabled", &self.enabled)
+            .field("level", &self.level)
+            .field("url", &self.url)
+            .field("database", &self.database)
+            .field("token", &self.token.as_ref().map(|_| "[REDACTED]"))
+            .field("username", &self.username.as_ref().map(|_| "[REDACTED]"))
+            .field("password", &self.password.as_ref().map(|_| "[REDACTED]"))
+            .field("batch_size", &self.batch_size)
+            .field("flush_interval_seconds", &self.flush_interval_seconds)
+            .field("use_https", &self.use_https)
+            .field("verify_ssl", &self.verify_ssl)
+            .finish()
+    }
 }
 
 /// 文件配置（别名）

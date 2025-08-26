@@ -76,7 +76,7 @@ impl EnvConfig {
         let has_password = Self::get_influxdb_password().is_some();
         
         // 必须有token或者用户名密码组合
-        if !has_token && !(has_username && has_password) {
+        if !(has_token || (has_username && has_password)) {
             return Err(QuantumLogError::ConfigError(
                 "InfluxDB authentication required: either INFLUXDB_TOKEN or both INFLUXDB_USERNAME and INFLUXDB_PASSWORD must be set".to_string()
             ));

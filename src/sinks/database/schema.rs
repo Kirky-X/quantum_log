@@ -3,10 +3,10 @@
 //! 此模块使用 Diesel 的 table! 宏定义数据库表结构。
 //! 支持 SQLite、MySQL 和 PostgreSQL 三种数据库类型。
 
-#[cfg(feature = "database")]
+#[cfg(feature = "db")]
 use diesel;
 
-#[cfg(feature = "database")]
+#[cfg(feature = "db")]
 // 定义数据库表结构
 diesel::table! {
     quantum_logs (id) {
@@ -58,7 +58,7 @@ mod postgres_types {
 }
 
 // 导出表定义供其他模块使用
-#[cfg(feature = "database")]
+#[cfg(feature = "db")]
 pub use self::quantum_logs::dsl::*;
 
 #[cfg(feature = "mysql")]
@@ -197,7 +197,7 @@ pub mod create_table_sql {
 #[cfg(test)]
 mod tests {
     #[test]
-    #[cfg(feature = "database")]
+    #[cfg(feature = "db")]
     fn test_table_definition_compiles() {
         // 这个测试确保表定义能够编译通过
         // 实际的表结构验证将在集成测试中进行

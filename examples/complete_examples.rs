@@ -214,8 +214,8 @@ async fn example_advanced_config() -> Result<(), Box<dyn std::error::Error>> {
             format_type: LogFormatType::Json,
         },
 
-        // 数据库配置（需要 database 特性）
-        #[cfg(feature = "database")]
+        // 数据库配置（需要 db 特性）
+        #[cfg(feature = "db")]
         database: Some(DatabaseSinkConfig {
             enabled: false, // 在示例中禁用以避免依赖数据库
             level: Some("WARN".to_string()),
@@ -229,7 +229,7 @@ async fn example_advanced_config() -> Result<(), Box<dyn std::error::Error>> {
             auto_create_table: true,
         }),
 
-        #[cfg(not(feature = "database"))]
+        #[cfg(not(feature = "db"))]
         database: None,
         
         // 网络配置（启用TLS加密传输）
@@ -338,8 +338,8 @@ async fn example_performance_test() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// 示例9: MPI 环境使用（需要 mpi_support 特性）
-#[cfg(feature = "mpi_support")]
+/// 示例9: MPI 环境使用（需要 mpi 特性）
+#[cfg(feature = "mpi")]
 async fn example_mpi_usage() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== 示例9: MPI 环境使用 ===");
 
@@ -393,7 +393,7 @@ async fn example_mpi_usage() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(feature = "mpi_support"))]
+#[cfg(not(feature = "mpi"))]
 #[allow(dead_code)]
 async fn example_mpi_usage() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== 示例9: MPI 环境使用 ===");
@@ -447,17 +447,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "详细错误处理",
     ];
 
-    #[cfg(feature = "mpi_support")]
+    #[cfg(feature = "mpi")]
     let mpi_examples = vec!["MPI 环境使用"];
 
     // 合并所有示例
-    #[cfg(feature = "mpi_support")]
+    #[cfg(feature = "mpi")]
     let all_examples = {
         let mut combined = examples;
         combined.extend(mpi_examples);
         combined
     };
-    #[cfg(not(feature = "mpi_support"))]
+    #[cfg(not(feature = "mpi"))]
     let all_examples = examples;
 
     for name in all_examples {
@@ -474,7 +474,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "高级配置" => example_advanced_config().await,
             "性能测试" => example_performance_test().await,
             "详细错误处理" => example_detailed_error_handling().await,
-            #[cfg(feature = "mpi_support")]
+            #[cfg(feature = "mpi")]
             "MPI 环境使用" => example_mpi_usage().await,
             _ => {
                 eprintln!("❌ 未知示例: {}", name);

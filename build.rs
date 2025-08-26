@@ -13,7 +13,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
     // 检查是否启用了 MPI 支持
-    let mpi_support = cfg!(feature = "mpi_support");
+    let mpi_support = cfg!(feature = "mpi");
     let dynamic_mpi = cfg!(feature = "dynamic_mpi");
 
     if mpi_support {

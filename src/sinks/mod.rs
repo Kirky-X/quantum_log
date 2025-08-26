@@ -21,7 +21,7 @@ pub mod stdout;
 pub mod traits;
 
 // 条件编译数据库功能
-#[cfg(feature = "database")]
+#[cfg(feature = "db")]
 pub mod database;
 
 // InfluxDB功能
@@ -39,7 +39,7 @@ pub use traits::{
     ExclusiveSink, QuantumSink, SinkError, SinkFactory, SinkMetadata, SinkResult, SinkType,
 };
 
-#[cfg(feature = "database")]
+#[cfg(feature = "db")]
 pub use database::DatabaseSink;
 
 // InfluxDB Sink

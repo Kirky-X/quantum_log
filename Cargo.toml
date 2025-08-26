@@ -118,13 +118,14 @@ debug = true
 
 [features]
 default = ["tokio-util"]
-database = ["diesel", "r2d2"]
-mpi_support = []
+db = ["diesel", "r2d2"]
+mpi = []
 dynamic_mpi = ["libloading"]
 tls = ["tokio-rustls", "rustls", "rustls-pemfile", "webpki-roots", "ring", "secrecy", "tokio-util"]
-sqlite = ["database", "diesel/sqlite", "libsqlite3-sys/bundled"]
-postgres = ["database", "diesel/postgres", "pq-sys/bundled", "openssl-sys/vendored"]
-mysql = ["database", "diesel/mysql", "mysqlclient-sys/bundled", "openssl-sys/vendored"]
+sqlite = ["db", "diesel/sqlite", "libsqlite3-sys/bundled"]
+postgres = ["db", "diesel/postgres", "pq-sys/bundled", "openssl-sys/vendored"]
+mysql = ["db", "diesel/mysql", "mysqlclient-sys/bundled", "openssl-sys/vendored"]
+influxdb = []
 [[bin]]
 name = "test_examples"
 path = "test/test_examples.rs"

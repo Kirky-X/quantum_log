@@ -39,7 +39,7 @@ struct MpiDynamic {
 static MPI_DYNAMIC: OnceCell<MpiDynamic> = OnceCell::new();
 
 /// 编译时链接的 MPI 函数声明
-#[cfg(all(feature = "mpi_support", not(feature = "dynamic_mpi")))]
+#[cfg(all(feature = "mpi", not(feature = "dynamic_mpi")))]
 extern "C" {
     fn MPI_Initialized(flag: *mut i32) -> i32;
     fn MPI_Comm_rank(comm: i32, rank: *mut i32) -> i32;
@@ -68,11 +68,11 @@ fn check_mpi_availability() -> bool {
     {
         load_mpi_library().is_ok()
     }
-    #[cfg(all(feature = "mpi_support", not(feature = "dynamic_mpi")))]
+    #[cfg(all(feature = "mpi", not(feature = "dynamic_mpi")))]
     {
         check_mpi_initialized().unwrap_or(false)
     }
-    #[cfg(all(not(feature = "mpi_support"), not(feature = "dynamic_mpi")))]
+    #[cfg(all(not(feature = "mpi"), not(feature = "dynamic_mpi")))]
     {
         false
     }
@@ -155,7 +155,7 @@ fn check_mpi_initialized() -> Result<bool> {
             Err(QuantumLogError::mpi("MPI_Initialized 函数未加载"))
         }
     }
-    #[cfg(all(feature = "mpi_support", not(feature = "dynamic_mpi")))]
+    #[cfg(all(feature = "mpi", not(feature = "dynamic_mpi")))]
     {
         unsafe {
             let mut flag: i32 = 0;
@@ -170,7 +170,7 @@ fn check_mpi_initialized() -> Result<bool> {
             }
         }
     }
-    #[cfg(all(not(feature = "mpi_support"), not(feature = "dynamic_mpi")))]
+    #[cfg(all(not(feature = "mpi"), not(feature = "dynamic_mpi")))]
     {
         Ok(false)
     }
@@ -212,7 +212,7 @@ fn get_mpi_rank_internal() -> Result<i32> {
             Err(QuantumLogError::mpi("MPI_Comm_rank 函数未加载"))
         }
     }
-    #[cfg(all(feature = "mpi_support", not(feature = "dynamic_mpi")))]
+    #[cfg(all(feature = "mpi", not(feature = "dynamic_mpi")))]
     {
         unsafe {
             let mut rank: i32 = -1;
@@ -227,7 +227,7 @@ fn get_mpi_rank_internal() -> Result<i32> {
             }
         }
     }
-    #[cfg(all(not(feature = "mpi_support"), not(feature = "dynamic_mpi")))]
+    #[cfg(all(not(feature = "mpi"), not(feature = "dynamic_mpi")))]
     {
         Err(QuantumLogError::mpi("MPI 支持未启用"))
     }

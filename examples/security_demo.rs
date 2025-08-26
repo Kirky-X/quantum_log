@@ -7,8 +7,10 @@
 //! - 输入数据验证
 
 use quantum_log::config::{
-    NetworkConfig, NetworkProtocol, OutputFormat, SecurityPolicy, TlsVersion, TlsCipherSuite
+    NetworkConfig, NetworkProtocol, OutputFormat, SecurityPolicy
 };
+#[cfg(feature = "tls")]
+use quantum_log::config::{TlsVersion, TlsCipherSuite};
 use quantum_log::sinks::NetworkSink;
 use quantum_log::core::event::{QuantumLogEvent, ContextInfo};
 use tracing::Level;
